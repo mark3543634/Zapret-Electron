@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Zapret Pro</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #080808; }
+::-webkit-scrollbar-thumb { background: #2a2a2a; }
+::-webkit-scrollbar-thumb:hover { background: #444; }
+
+body {
+    background: #000;
+    color: #bbb;
+    font-family: "Courier New", Consolas, monospace;
+    font-size: 12px;
+    padding: 16px;
+    user-select: none;
+    line-height: 1.45;
+    -webkit-font-smoothing: none;
+}
+
+.header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #1e1e1e;
+}
+
+.logo {
+    font-size: 15px;
+    font-weight: bold;
+    letter-spacing: 5px;
+    color: #fff;
+    text-transform: uppercase;
+}
+
+.version { font-size: 10px; color: #3a3a3a; letter-spacing: 1px; }
+
+.status-card {
+    border: 1px solid #1e1e1e;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+    background: #050505;
+}
+
+.status-card.running { border-color: #fff; }
+
+.status-dot {
+    font-size: 13px;
+    flex-shrink: 0;
+    line-height: 1;
+    font-family: "Courier New", monospace;
+}
+
+.status-dot::before { content: '[■]'; color: #2a2a2a; }
+
+.status-dot.running::before {
+    content: '[▶]';
+    color: #fff;
+    animation: pixblink 1.4s steps(1) infinite;
+}
+
+@keyframes pixblink {
+    0%, 55% { opacity: 1; }
+    56%, 100% { opacity: 0.25; }
+}
+
+.status-info { flex: 1; min-width: 0; }
+
+.status-title {
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 1.5px;
+    color: #3a3a3a;
+    text-transform: uppercase;
+}
+
+.status-title.running { color: #fff; }
+
+.status-sub {
+    font-size: 10px;
+    color: #2e2e2e;
+    margin-top: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card {
+    border: 1px solid #181818;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    background: #050505;
+}
+
+.card-title {
+    font-size: 9px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #3a3a3a;
+    margin-bottom: 7px;
+    font-weight: bold;
+}
+
+.select-wrap { position: relative; }
+.select-wrap::after {
+    content: 'v';
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #444;
+    pointer-events: none;
+    font-size: 10px;
+}
+
+select {
+    width: 100%;
+    background: #000;
+    border: 1px solid #252525;
+    color: #bbb;
+    padding: 8px 26px 8px 10px;
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+select:focus { border-color: #666; }
+select option { background: #0c0c0c; color: #bbb; }
+select optgroup { background: #000; color: #444; font-size: 9px; letter-spacing: 1px; }
+
+.autostart-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border: 1px solid #181818;
+    background: #050505;
+    margin-bottom: 10px;
+    cursor: pointer;
+}
+
+.autostart-row:hover { border-color: #444; }
+.autostart-row input[type=checkbox] {
+    accent-color: #fff;
+    cursor: pointer;
+    flex-shrink: 0;
+    width: 13px; height: 13px;
+}
+.autostart-label { font-size: 11px; color: #484848; }
+
+.btn-row { display: flex; gap: 8px; margin-bottom: 10px; }
+
+.btn {
+    flex: 1;
+    padding: 10px 8px;
+    border: 1px solid #2e2e2e;
+    background: #000;
+    color: #666;
+    font-family: "Courier New", Consolas, monospace;
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 1.5px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: none;
+}
+
+.btn:hover:not(:disabled) { background: #fff; color: #000; border-color: #fff; }
+.btn:active:not(:disabled) { background: #ccc; color: #000; border-color: #ccc; }
+.btn:disabled { opacity: 0.2; cursor: not-allowed; }
+
+.btn-primary { border-color: #777; color: #ccc; }
+.btn-stop    { border-color: #444; color: #888; }
+.btn-ghost   { border-color: #1e1e1e; color: #444; }
+.btn-icon    { flex: none; padding: 7px 10px; }
+
+.progress-wrap {
+    height: 2px;
+    background: #111;
+    margin-bottom: 10px;
+    opacity: 0;
+}
+
+.progress-wrap.visible { opacity: 1; }
+.progress-bar { height: 100%; width: 0%; background: #fff; }
+
+.grid { display: flex; gap: 10px; margin-bottom: 10px; }
+.col { flex: 1; }
+.col-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+.col-title { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #3a3a3a; font-weight: bold; }
+
+textarea {
+    width: 100%;
+    background: #000;
+    border: 1px solid #181818;
+    color: #666;
+    padding: 7px 9px;
+    font-family: "Courier New", Consolas, monospace;
+    font-size: 11px;
+    resize: none;
+    outline: none;
+    line-height: 1.5;
+}
+
+textarea:focus { border-color: #444; color: #aaa; }
+
+.log-title { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #3a3a3a; font-weight: bold; margin-bottom: 5px; }
+.divider { height: 1px; background: #181818; margin: 10px 0; }
+.bottom-bar { display: flex; gap: 8px; }
+
+.ping-row, .timer-row {
+    display: none;
+    margin-top: 3px;
+    font-size: 10px;
+    color: #444;
+    letter-spacing: 1px;
+}
+
+#pingLine, #timerLine { color: #777; }
+</style>
+
+<script>
+    const { execSync, spawn } = require('child_process');
+    const fs   = require('fs');
+    const path = require('path');
+    const os   = require('os');
+    const https = require('https');
+    const net   = require('net');
+    const { ipcRenderer } = require('electron');
+
+    let isRunning        = false;
+    let isAutoDetecting  = false;
+    let cancelTest       = false;
+    let isProcessingClick = false;
+    let testResults      = {};
+    let pingInterval     = null;
+    let timerInterval    = null;
+    let engineStartTime  = null;
+    let engineProcess    = null;
+    let watchdogRestarts = 0;
+
+    const strPath       = __dirname;
+    const excludeFile   = path.join(strPath, 'lists', 'list-exclude.txt');
+    const engineLogPath = path.join(strPath, 'engine.log');
+    const winwsPath     = path.join(strPath, 'winws.exe');
+
+    function parseWinwsArgs(str) {
+        const args = [];
+        let cur = '', inQ = false;
+        for (const ch of str) {
+            if (ch === '"')           { inQ = !inQ; }
+            else if (ch === ' ' && !inQ) { if (cur) { args.push(cur); cur = ''; } }
+            else                      { cur += ch; }
+        }
+        if (cur) args.push(cur);
+        return args;
+    }
+
+    function spawnEngine(stratValue) {
+        const fd = fs.openSync(engineLogPath, 'w');
+        engineProcess = spawn(winwsPath, parseWinwsArgs(stratValue), {
+            cwd: strPath, windowsHide: true,
+            stdio: ['ignore', fd, fd]
+        });
+        fs.closeSync(fd);
+        engineProcess.on('exit', () => {
+            engineProcess = null;
+            if (isRunning && !isAutoDetecting) watchdogRestart();
+        });
+    }
+
+    async function watchdogRestart() {
+        watchdogRestarts++;
+        logMsg(`[!] WATCHDOG: движок упал. Перезапуск #${watchdogRestarts}...`);
+        await new Promise(r => setTimeout(r, 1500));
+        if (!isRunning) return;
+        spawnEngine(document.getElementById('stratSel').value);
+        logMsg('[▶] WATCHDOG: перезапущено.');
+    }
+
+    function updateStatusUI(state, subtitle) {
+        const card  = document.getElementById('statusCard');
+        const dot   = document.getElementById('statusDot');
+        const title = document.getElementById('stText');
+        const sub   = document.getElementById('statusSub');
+        const mBtn  = document.getElementById('mBtn');
+        if (state === 'running') {
+            card.classList.add('running');
+            dot.classList.add('running');
+            title.classList.add('running');
+            title.textContent = 'АКТИВЕН';
+            mBtn.className    = 'btn btn-stop';
+            mBtn.textContent  = '■ ОСТАНОВИТЬ';
+            document.title    = '[ON] Zapret Pro';
+        } else {
+            card.classList.remove('running');
+            dot.classList.remove('running');
+            title.classList.remove('running');
+            title.textContent = 'ОСТАНОВЛЕН';
+            mBtn.className    = 'btn btn-primary';
+            mBtn.textContent  = '▶ ЗАПУСТИТЬ';
+            document.title    = '[OFF] Zapret Pro';
+        }
+        if (subtitle !== undefined) sub.textContent = subtitle;
+    }
+
+    function setTrayStatus(status) {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 32;
+        const ctx = canvas.getContext('2d');
+        ctx.beginPath();
+        ctx.arc(16, 16, 14, 0, 2 * Math.PI);
+        ctx.fillStyle   = (status === 'running') ? '#ffffff' : '#333333';
+        ctx.fill();
+        ctx.lineWidth   = 2;
+        ctx.strokeStyle = '#000';
+        ctx.stroke();
+        ipcRenderer.send('update-tray', {
+            imgBase64: canvas.toDataURL('image/png'),
+            tooltip:   (status === 'running') ? 'Zapret Pro: АКТИВЕН' : 'Zapret Pro: ОСТАНОВЛЕН'
+        });
+    }
+
+    function logMsg(text) {
+        const l = document.getElementById('logArea');
+        l.value += text + '\n';
+        l.scrollTop = l.scrollHeight;
+    }
+
+    ipcRenderer.on('hotkey-toggle', () => {
+        StartEngine();
+        const state = isRunning ? 'Обход активирован' : 'Обход остановлен';
+        new window.Notification('Zapret Pro', { body: state, silent: true });
+    });
+
+    function Init() {
+        if (fs.existsSync(excludeFile))
+            document.getElementById('excludeArea').value = fs.readFileSync(excludeFile, 'utf8');
+
+        if (localStorage.getItem('autostart') === 'true')
+            document.getElementById('autostartChk').checked = true;
+
+        const savedStrat = localStorage.getItem('savedStrategy');
+        if (savedStrat) document.getElementById('stratSel').value = savedStrat;
+
+        const h = localStorage.getItem('autoHistory');
+        if (h) {
+            try {
+                const { name, score, total, date } = JSON.parse(h);
+                logMsg(`[>] Последний авто-тест (${date}): ${name} — ${score}/${total} сайтов`);
+            } catch(e) {}
+        }
+
+        setTrayStatus('stopped');
+        updateStatusUI('stopped', 'Движок не активен');
+
+        if (process.argv.includes('--autostart')) {
+            logMsg('[>>] Автозапуск при старте Windows. Активирую обход...');
+            StartEngine();
+            setTimeout(() => {
+                const sel = document.getElementById('stratSel');
+                const name = sel.options[sel.selectedIndex].text;
+                new window.Notification('Zapret Pro', {
+                    body: `Обход активен: ${name}`,
+                    silent: true
+                });
+            }, 3500);
+        }
+    }
+
+    function ToggleAutostart() {
+        const chk     = document.getElementById('autostartChk');
+        const exePath = process.execPath;
+        if (chk.checked) {
+            try {
+                execSync(`reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "ZapretPro" /t REG_SZ /d "\\"${exePath}\\" --autostart" /f`, { windowsHide: true });
+                localStorage.setItem('autostart', 'true');
+                logMsg('[>>] Автозагрузка активирована.');
+            } catch(e) { logMsg('[!] Ошибка реестра: ' + e.message); chk.checked = false; }
+        } else {
+            try {
+                execSync(`reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "ZapretPro" /f`, { windowsHide: true });
+                localStorage.setItem('autostart', 'false');
+                logMsg('[>>] Автозагрузка удалена.');
+            } catch(e) { logMsg('[!] Ошибка реестра: ' + e.message); }
+        }
+    }
+
+    function SaveStrategyChoice() {
+        localStorage.setItem('savedStrategy', document.getElementById('stratSel').value);
+    }
+
+    function SaveExcludes() {
+        fs.writeFileSync(excludeFile, document.getElementById('excludeArea').value, 'utf8');
+        logMsg('[OK] Белый список сохранён.');
+    }
+
+    function Nuke() {
+        const wasRunning = isRunning;
+        isRunning = false;
+        engineProcess = null;
+        try { execSync('taskkill /F /IM winws.exe /T', { stdio: 'ignore', windowsHide: true }); } catch(e){}
+        try { execSync('sc stop WinDivert',            { stdio: 'ignore', windowsHide: true }); } catch(e){}
+        try { execSync('sc delete WinDivert',          { stdio: 'ignore', windowsHide: true }); } catch(e){}
+        if (wasRunning) updateStatusUI('stopped', 'Движок не активен');
+        stopPingMonitor();
+        stopTimer();
+        setTrayStatus('stopped');
+    }
+
+    function StartEngine() {
+        if (isAutoDetecting) { alert('Сначала остановите автоподбор!'); return; }
+        if (!isRunning) {
+            const sel      = document.getElementById('stratSel');
+            const strat    = sel.value;
+            const stratName = sel.options[sel.selectedIndex].text;
+            Nuke();
+            spawnEngine(strat);
+            isRunning = true;
+            updateStatusUI('running', stratName);
+            watchdogRestarts = 0;
+            logMsg('[▶] Запущено! Движок работает в фоне.');
+            setTrayStatus('running');
+            startTimer();
+            startPingMonitor();
+        } else {
+            Nuke();
+            logMsg('[■] Остановлено.');
+        }
+    }
+
+    function AutoDetect() {
+        if (isProcessingClick) return;
+        isProcessingClick = true;
+        setTimeout(() => { isProcessingClick = false; }, 800);
+
+        const autoBtn = document.getElementById('autoBtn');
+
+        if (isAutoDetecting) {
+            cancelTest = true;
+            autoBtn.textContent = '... ОСТАНАВЛИВАЮ';
+            autoBtn.disabled    = true;
+            return;
+        }
+
+        const sitesRaw = document.getElementById('testSites').value.split('\n');
+        const targets  = sitesRaw
+            .map(s => s.trim()).filter(Boolean)
+            .map(s => ({ name: s, url: 'https://' + s }));
+
+        if (!targets.length) { alert('Введите сайты для теста!'); return; }
+
+        isAutoDetecting = true;
+        cancelTest      = false;
+        testResults     = {};
+
+        autoBtn.textContent = '[X] ОСТАНОВИТЬ ТЕСТ';
+        autoBtn.classList.replace('btn-primary', 'btn-stop');
+        document.getElementById('mBtn').disabled = true;
+        document.getElementById('progressWrap').classList.add('visible');
+        document.getElementById('progressBar').style.width = '0%';
+        document.getElementById('logArea').value = 'Начало автоподбора стратегий...\n';
+
+        setTrayStatus('running');
+
+        if (isRunning) {
+            isRunning = false;
+            updateStatusUI('stopped', 'Идёт автоподбор...');
+        } else {
+            document.getElementById('statusSub').textContent = 'Идёт автоподбор...';
+        }
+
+        const sel = document.getElementById('stratSel');
+        RunTestStep(0, targets, sel, autoBtn);
+    }
+
+    async function RunTestStep(idx, targets, sel, autoBtn) {
+        const total = sel.options.length;
+        try {
+            for (; idx < total; idx++) {
+                if (cancelTest) {
+                    logMsg('\n[X] ТЕСТ ПРЕРВАН ПОЛЬЗОВАТЕЛЕМ.');
+                    break;
+                }
+
+                const sName = sel.options[idx].text;
+                const sVal  = sel.options[idx].value;
+                const pct   = Math.round((idx / total) * 100);
+                document.getElementById('progressBar').style.width = pct + '%';
+                document.getElementById('statusSub').textContent   = `Тест ${idx + 1}/${total}: ${sName}`;
+                logMsg(`\n[*] (${idx + 1}/${total}) ${sName}`);
+
+                Nuke();
+                spawnEngine(sVal);
+                await new Promise(r => setTimeout(r, 3500));
+
+                let okCount = 0;
+                for (let i = 0; i < targets.length; i++) {
+                    if (cancelTest) break;
+                    const t = targets[i];
+                    const isAlive = await new Promise(resolve => {
+                        let done = false;
+                        const finish = (val) => { if (!done) { done = true; resolve(val); } };
+                        const req = https.get(t.url, { agent: false }, (res) => {
+                            res.resume();
+                            finish(true);
+                        });
+                        req.setTimeout(3000, () => { req.abort(); finish(false); });
+                        req.on('error', () => finish(false));
+                    });
+                    if (isAlive) { logMsg('   [+] ' + t.name + ' OK'); okCount++; }
+                    else         { logMsg('   [-] ' + t.name + ' БЛОК'); }
+                }
+
+                if (cancelTest) {
+                    logMsg('\n[X] ТЕСТ ПРЕРВАН ПОЛЬЗОВАТЕЛЕМ.');
+                    break;
+                }
+
+                testResults[sName] = { ok: okCount, total: targets.length };
+
+                Nuke();
+                await new Promise(r => setTimeout(r, 1500));
+            }
+
+            if (!cancelTest) {
+                logMsg('\n=== ИТОГ ===');
+                for (const [name, res] of Object.entries(testResults)) {
+                    const mark = res.ok === res.total ? '[+]' : res.ok > 0 ? '[~]' : '[-]';
+                    logMsg(`${mark} ${name}: ${res.ok}/${res.total} сайтов`);
+                }
+
+                let bestIdx = -1, bestScore = -1;
+                for (let i = 0; i < total; i++) {
+                    const res = testResults[sel.options[i].text];
+                    if (res && res.ok > bestScore) { bestScore = res.ok; bestIdx = i; }
+                }
+                if (bestIdx >= 0 && bestScore > 0) {
+                    sel.selectedIndex = bestIdx;
+                    SaveStrategyChoice();
+                    const bestName  = sel.options[bestIdx].text;
+                    const bestTotal = testResults[bestName].total;
+                    logMsg(`\n[>] Лучшая стратегия: ${bestName} (${bestScore}/${bestTotal})`);
+                    const d = new Date();
+                    const date = `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getFullYear()).slice(-2)}`;
+                    localStorage.setItem('autoHistory', JSON.stringify({ name: bestName, score: bestScore, total: bestTotal, date }));
+                } else {
+                    logMsg('\n[!] Ни одна стратегия не сработала.');
+                }
+                logMsg('\n[OK] ТЕСТ ЗАВЕРШЁН.');
+            }
+        } catch (err) {
+            logMsg('\n[!] Ошибка автоподбора: ' + err.message);
+        } finally {
+            ResetAutoDetectState(autoBtn);
+        }
+    }
+
+    function ResetAutoDetectState(autoBtn) {
+        isAutoDetecting = false;
+        cancelTest      = false;
+        autoBtn.textContent = '✦ АВТОПОДБОР';
+        autoBtn.classList.replace('btn-stop', 'btn-primary');
+        autoBtn.disabled = false;
+        document.getElementById('mBtn').disabled = false;
+        document.getElementById('progressBar').style.width = '100%';
+        setTimeout(() => {
+            document.getElementById('progressWrap').classList.remove('visible');
+            document.getElementById('progressBar').style.width = '0%';
+        }, 600);
+        updateStatusUI('stopped', 'Движок не активен');
+        Nuke();
+    }
+
+    function formatUptime(ms) {
+        const s   = Math.floor(ms / 1000);
+        const h   = Math.floor(s / 3600);
+        const m   = Math.floor((s % 3600) / 60);
+        const sec = s % 60;
+        return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    }
+
+    function startTimer() {
+        engineStartTime = Date.now();
+        document.getElementById('timerRow').style.display = 'block';
+        timerInterval = setInterval(() => {
+            document.getElementById('timerLine').textContent = formatUptime(Date.now() - engineStartTime);
+        }, 1000);
+    }
+
+    function stopTimer() {
+        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        engineStartTime = null;
+        const row = document.getElementById('timerRow');
+        if (row) row.style.display = 'none';
+        const line = document.getElementById('timerLine');
+        if (line) line.textContent = '00:00:00';
+    }
+
+    function measureLatency(host) {
+        return new Promise(resolve => {
+            const start = Date.now();
+            const socket = net.createConnection({ host, port: 443, timeout: 3000 });
+            let done = false;
+            const finish = (ms) => { if (!done) { done = true; socket.destroy(); resolve(ms); } };
+            socket.on('connect', () => finish(Date.now() - start));
+            socket.on('error',   () => finish(null));
+            socket.on('timeout', () => finish(null));
+        });
+    }
+
+    async function updatePing() {
+        if (!isRunning) return;
+        const [yt, dc] = await Promise.all([
+            measureLatency('youtube.com'),
+            measureLatency('discord.com')
+        ]);
+        if (!isRunning) return;
+        const fmt = ms => ms !== null ? `${ms}ms` : '---';
+        document.getElementById('pingLine').textContent = `YT:${fmt(yt)}  DC:${fmt(dc)}`;
+    }
+
+    function startPingMonitor() {
+        stopPingMonitor();
+        document.getElementById('pingRow').style.display = 'block';
+        updatePing();
+        pingInterval = setInterval(updatePing, 5000);
+    }
+
+    function stopPingMonitor() {
+        if (pingInterval) { clearInterval(pingInterval); pingInterval = null; }
+        const row = document.getElementById('pingRow');
+        if (row) { row.style.display = 'none'; }
+        const line = document.getElementById('pingLine');
+        if (line) line.textContent = '---';
+    }
+
+    function ExportReport() {
+        const desktopPath = path.join(os.homedir(), 'Desktop', 'Zapret_Report.txt');
+        let report = '=== ОТЧЕТ ZAPRET PRO ===\n\n' + document.getElementById('logArea').value + '\n\n';
+        if (fs.existsSync(engineLogPath))
+            report += '--- ЛОГИ ДВИЖКА ---\n' + fs.readFileSync(engineLogPath, 'utf8');
+        fs.writeFileSync(desktopPath, report);
+        alert('Отчет сохранён на рабочем столе!');
+    }
+</script>
+</head>
+<body onload="Init()">
+
+<div class="header">
+    <div class="logo">ZAPRET PRO</div>
+    <div class="version">v5.8</div>
+</div>
+
+<div id="statusCard" class="status-card">
+    <div id="statusDot" class="status-dot"></div>
+    <div class="status-info">
+        <div id="stText" class="status-title">ОСТАНОВЛЕН</div>
+        <div id="statusSub" class="status-sub">Движок не активен</div>
+        <div id="timerRow" class="timer-row">ВРЕМЯ&nbsp;<span id="timerLine">00:00:00</span></div>
+        <div id="pingRow" class="ping-row">ПИНГ &nbsp;<span id="pingLine">---</span></div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-title">Стратегия обхода</div>
+    <div class="select-wrap">
+        <select id="stratSel" onchange="SaveStrategyChoice()">
+
+            <optgroup label="── КОМБО ──">
+                <option value="--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,49152-65535 --filter-udp=443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-fake-stun=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=443 --hostlist=&quot;lists\list-google.txt&quot; --ip-id=zero --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=80,443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-tcp=80,443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=49152-65535 --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-cutoff=n2">Комбо — TG + YouTube + Discord + Roblox</option>
+            </optgroup>
+
+            <optgroup label="── УНИВЕРСАЛЬНЫЕ ──">
+                <option value="--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,50000-50100 --filter-udp=443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-fake-stun=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=443 --hostlist=&quot;lists\list-google.txt&quot; --ip-id=zero --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=80,443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-tcp=80,443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=27015-27030 --ipset=&quot;lists\ipset-all.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-cutoff=n3">Универсал 1 — FAKE + QUIC</option>
+                <option value="--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,50000-50100 --filter-udp=443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-fake-stun=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=multisplit --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=443 --hostlist=&quot;lists\list-google.txt&quot; --ip-id=zero --dpi-desync=multisplit --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=80,443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=multisplit --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-tcp=80,443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=multisplit --dpi-desync-split-seqovl=652 --dpi-desync-split-pos=2 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=27015-27030 --ipset=&quot;lists\ipset-all.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-cutoff=n2">Универсал 2 — Multisplit (seqovl-652)</option>
+                <option value="--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,50000-50100 --filter-udp=443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-fake-stun=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake,hostfakesplit --dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru --dpi-desync-hostfakesplit-mod=host=ya.ru,altorder=1 --dpi-desync-fooling=ts --new --filter-tcp=443 --hostlist=&quot;lists\list-google.txt&quot; --ip-id=zero --dpi-desync=fake,hostfakesplit --dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com --dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1 --dpi-desync-fooling=ts --new --filter-tcp=80,443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,hostfakesplit --dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru --dpi-desync-hostfakesplit-mod=host=ya.ru,altorder=1 --dpi-desync-fooling=ts --new --filter-udp=443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-tcp=80,443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,hostfakesplit --dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru --dpi-desync-hostfakesplit-mod=host=ya.ru,altorder=1 --dpi-desync-fooling=ts --new --filter-udp=27015-27030 --ipset=&quot;lists\ipset-all.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=10 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-cutoff=n2">Универсал 3 — HostFakeSplit (маска Яндекс)</option>
+                <option value="--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,50000-50100 --filter-udp=443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-fake-stun=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake,multisplit --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-badseq-increment=1000 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=443 --hostlist=&quot;lists\list-google.txt&quot; --ip-id=zero --dpi-desync=fake,multisplit --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-badseq-increment=1000 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=80,443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,multisplit --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-badseq-increment=1000 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-tcp=80,443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,multisplit --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-badseq-increment=1000 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=27015-27030 --ipset=&quot;lists\ipset-all.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=10 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-cutoff=n2">Универсал 4 — BadSeq-1000</option>
+                <option value="--wf-tcp=443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,50000-50100 --filter-udp=443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-fake-stun=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-repeats=6 --new --filter-l3=ipv4 --filter-tcp=443,2053,2083,2087,2096,8443 --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=syndata,multidisorder --new --filter-udp=443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=27015-27030 --ipset=&quot;lists\ipset-all.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=14 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-cutoff=n3">Универсал 5 — SynData + MultiDisorder</option>
+                <option value="--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,50000-50100 --filter-udp=443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-fake-stun=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=443 --hostlist=&quot;lists\list-google.txt&quot; --ip-id=zero --dpi-desync=multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=80,443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-tcp=80,443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=27015-27030 --ipset=&quot;lists\ipset-all.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-cutoff=n2">Универсал 6 — Multisplit (seqovl-681)</option>
+                <option value="--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,50000-50100 --filter-udp=443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-fake-stun=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=multisplit --dpi-desync-split-pos=2,sniext+1 --dpi-desync-split-seqovl=679 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=443 --hostlist=&quot;lists\list-google.txt&quot; --ip-id=zero --dpi-desync=multisplit --dpi-desync-split-pos=2,sniext+1 --dpi-desync-split-seqovl=679 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=80,443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=multisplit --dpi-desync-split-pos=2,sniext+1 --dpi-desync-split-seqovl=679 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-tcp=80,443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=syndata --new --filter-udp=27015-27030 --ipset=&quot;lists\ipset-all.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-cutoff=n2">Универсал 7 — SNI-split + SynData</option>
+                <option value="--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,50000-50100 --filter-udp=443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-fake-stun=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake --dpi-desync-fake-tls-mod=none --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-badseq-increment=2 --new --filter-tcp=443 --hostlist=&quot;lists\list-google.txt&quot; --ip-id=zero --dpi-desync=fake --dpi-desync-fake-tls-mod=none --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-badseq-increment=2 --new --filter-tcp=80,443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-fake-tls-mod=none --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-badseq-increment=2 --new --filter-udp=443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-tcp=80,443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-fake-tls-mod=none --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --dpi-desync-badseq-increment=2 --new --filter-udp=27015-27030 --ipset=&quot;lists\ipset-all.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-cutoff=n2">Универсал 8 — BadSeq-2 (мягкий)</option>
+                <option value="--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,50000-50100 --filter-udp=443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-fake-stun=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=hostfakesplit --dpi-desync-repeats=4 --dpi-desync-fooling=ts --dpi-desync-hostfakesplit-mod=host=ozon.ru --new --filter-tcp=443 --hostlist=&quot;lists\list-google.txt&quot; --ip-id=zero --dpi-desync=hostfakesplit --dpi-desync-repeats=4 --dpi-desync-fooling=ts --dpi-desync-hostfakesplit-mod=host=www.google.com --new --filter-tcp=80,443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=hostfakesplit --dpi-desync-repeats=4 --dpi-desync-fooling=ts,md5sig --dpi-desync-hostfakesplit-mod=host=ozon.ru --new --filter-udp=443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-tcp=80,443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=hostfakesplit --dpi-desync-repeats=4 --dpi-desync-fooling=ts --dpi-desync-hostfakesplit-mod=host=ozon.ru --new --filter-udp=27015-27030 --ipset=&quot;lists\ipset-all.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=12 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-cutoff=n2">Универсал 9 — HostFakeSplit (маска Ozon)</option>
+                <option value="--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,50000-50100 --filter-udp=443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-fake-stun=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=654 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_max_ru.bin&quot; --dpi-desync-fake-tls=&quot;bin\tls_clienthello_max_ru.bin&quot; --new --filter-tcp=443 --hostlist=&quot;lists\list-google.txt&quot; --ip-id=zero --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_www_google_com.bin&quot; --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=80,443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=654 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_max_ru.bin&quot; --dpi-desync-fake-tls=&quot;bin\tls_clienthello_max_ru.bin&quot; --new --filter-udp=443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-tcp=80,443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,multisplit --dpi-desync-split-seqovl=654 --dpi-desync-split-pos=1 --dpi-desync-fooling=ts --dpi-desync-repeats=8 --dpi-desync-split-seqovl-pattern=&quot;bin\tls_clienthello_max_ru.bin&quot; --dpi-desync-fake-tls=&quot;bin\tls_clienthello_max_ru.bin&quot; --new --filter-udp=27015-27030 --ipset=&quot;lists\ipset-all.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=10 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-cutoff=n2">Универсал 10 — Max.ru TLS + x11</option>
+            </optgroup>
+
+        </select>
+    </div>
+</div>
+
+<label class="autostart-row">
+    <input type="checkbox" id="autostartChk" onclick="ToggleAutostart()">
+    <span class="autostart-label">Запускать при старте Windows</span>
+</label>
+
+<div class="btn-row">
+    <button id="mBtn" class="btn btn-primary" onclick="StartEngine()">▶ ЗАПУСТИТЬ</button>
+    <button id="autoBtn" class="btn btn-primary" onclick="AutoDetect()">✦ АВТОПОДБОР</button>
+</div>
+
+<div id="progressWrap" class="progress-wrap">
+    <div id="progressBar" class="progress-bar"></div>
+</div>
+
+<div class="grid">
+    <div class="col">
+        <div class="col-header">
+            <span class="col-title">Сайты для теста</span>
+        </div>
+        <textarea id="testSites" style="height:62px;">youtube.com&#10;discord.com</textarea>
+    </div>
+    <div class="col">
+        <div class="col-header">
+            <span class="col-title">Исключения</span>
+            <button class="btn btn-ghost btn-icon" onclick="SaveExcludes()" title="Сохранить">[S]</button>
+        </div>
+        <textarea id="excludeArea" style="height:62px;"></textarea>
+    </div>
+</div>
+
+<div class="log-title">Журнал</div>
+<textarea id="logArea" style="height:260px;" readonly></textarea>
+
+<div class="divider"></div>
+
+<div class="bottom-bar">
+    <button class="btn btn-ghost" onclick="ExportReport()">ОТЧЁТ</button>
+    <button class="btn btn-stop" style="flex:none;padding:10px 18px;" onclick="Nuke()">СБРОС</button>
+</div>
+
+</body>
+</html>
