@@ -7,7 +7,7 @@
 
 ## Скачать
 
-**[→ ZapretPro-Setup-v5.9.exe](https://github.com/mark3543634/Zapret-Electron/releases/download/v5.9/ZapretPro-Setup-v5.9.exe)**
+**[→ ZapretPro-Setup-v6.0.exe](https://github.com/mark3543634/Zapret-Electron/releases/download/v6.0/ZapretPro-Setup-v6.0.exe)**
 
 Или открой [Releases](https://github.com/mark3543634/Zapret-Electron/releases) и скачай последнюю версию.
 
@@ -18,7 +18,7 @@
 
 ## Установка
 
-1. Скачай `ZapretPro-Setup-v5.9.exe`
+1. Скачай `ZapretPro-Setup-v6.0.exe`
 2. Запусти установщик
 3. После установки запусти Zapret Electron
 4. Выбери стратегию → нажми **▶ ЗАПУСТИТЬ**
@@ -34,6 +34,7 @@
 - **Watchdog** — если движок упал, перезапускает автоматически без участия пользователя
 - **История автоподбора** — при запуске показывает результат последнего теста
 - **Автозапуск** — опционально, запись в реестр Windows
+- **Обновление списков** — кнопка `[UPD]` скачивает актуальные списки сайтов с GitHub
 
 ### Мониторинг
 - **Пинг-монитор** — задержка до YouTube и Discord, обновляется каждые 5 секунд
@@ -64,7 +65,7 @@ npm start
 
 **Сборка установщика:**
 1. Установи [Inno Setup 6](https://jrsoftware.org/isdl.php)
-2. Собери пакет: `electron-packager . ZapretPro --platform=win32 --arch=x64 --out=out`
+2. Собери пакет: `npm run build`
 3. Скомпилируй `setup.iss` через Inno Setup
 
 ## Благодарности
