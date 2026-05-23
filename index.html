@@ -701,7 +701,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 
     function ExportReport() {
         const desktopPath = path.join(os.homedir(), 'Desktop', 'Zapret_Report.txt');
-        let report = '=== ОТЧЕТ ZAPRET PRO ===\n\n' + document.getElementById('logArea').value + '\n\n';
+        let report = '=== ОТЧЕТ ZAPRET ELECTRON ===\n\n' + document.getElementById('logArea').value + '\n\n';
         if (fs.existsSync(engineLogPath))
             report += '--- ЛОГИ ДВИЖКА ---\n' + fs.readFileSync(engineLogPath, 'utf8');
         fs.writeFileSync(desktopPath, report);
@@ -712,7 +712,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 <body onload="Init()">
 
 <div class="header">
-    <div class="logo">ZAPRET PRO</div>
+    <div class="logo">ZAPRET ELECTRON</div>
     <div class="version">v5.8</div>
 </div>
 
