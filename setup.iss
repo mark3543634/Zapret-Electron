@@ -1,12 +1,12 @@
 [Setup]
 AppName=Zapret Pro
-AppVersion=5.8
+AppVersion=5.9
 AppPublisher=ZapretPro
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
 DefaultDirName={autopf}\ZapretPro
 DefaultGroupName=Zapret Pro
 OutputDir=.\releases
-OutputBaseFilename=ZapretPro-Setup-v5.8
+OutputBaseFilename=ZapretPro-Setup-v5.9
 Compression=lzma2/ultra64
 SolidCompression=yes
 PrivilegesRequired=admin
