@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8" />
-<title>Запрет Электрон</title>
+<title>Zapret Electron</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -303,7 +303,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             title.textContent = 'АКТИВЕН';
             mBtn.className    = 'btn btn-stop';
             mBtn.textContent  = '■ ОСТАНОВИТЬ';
-            document.title    = '[ON] Запрет Электрон';
+            document.title    = '[ON] Zapret Electron';
         } else {
             card.classList.remove('running');
             dot.classList.remove('running');
@@ -311,7 +311,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             title.textContent = 'ОСТАНОВЛЕН';
             mBtn.className    = 'btn btn-primary';
             mBtn.textContent  = '▶ ЗАПУСТИТЬ';
-            document.title    = '[OFF] Запрет Электрон';
+            document.title    = '[OFF] Zapret Electron';
         }
         if (subtitle !== undefined) sub.textContent = subtitle;
     }
@@ -329,7 +329,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         ctx.stroke();
         ipcRenderer.send('update-tray', {
             imgBase64: canvas.toDataURL('image/png'),
-            tooltip:   (status === 'running') ? 'Запрет Электрон: АКТИВЕН' : 'Запрет Электрон: ОСТАНОВЛЕН'
+            tooltip:   (status === 'running') ? 'Zapret Electron: АКТИВЕН' : 'Zapret Electron: ОСТАНОВЛЕН'
         });
     }
 
@@ -342,7 +342,7 @@ textarea:focus { border-color: #444; color: #aaa; }
     ipcRenderer.on('hotkey-toggle', () => {
         StartEngine();
         const state = isRunning ? 'Обход активирован' : 'Обход остановлен';
-        new window.Notification('Запрет Электрон', { body: state, silent: true });
+        new window.Notification('Zapret Electron', { body: state, silent: true });
     });
 
     function Init() {
@@ -372,7 +372,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             setTimeout(() => {
                 const sel = document.getElementById('stratSel');
                 const name = sel.options[sel.selectedIndex].text;
-                new window.Notification('Запрет Электрон', {
+                new window.Notification('Zapret Electron', {
                     body: `Обход активен: ${name}`,
                     silent: true
                 });
