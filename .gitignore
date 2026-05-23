@@ -1,0 +1,24 @@
+# Зависимости
+node_modules/
+
+# Сборки Electron
+out/
+ZapretPro-win32-x64/
+
+# Инсталляторы (выкладываются в GitHub Releases)
+releases/
+
+# Рантайм логи
+*.log
+engine_started.txt
+
+# Внутренние заметки
+DIALOGUES.txt
+
+# Бэкапы
+lists/*.backup
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
