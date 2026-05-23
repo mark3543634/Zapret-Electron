@@ -72,7 +72,7 @@ app.whenReady().then(() => {
   tray = new Tray(emptyIcon);
   
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Развернуть Zapret Pro', click: () => { mainWindow.show(); } },
+    { label: 'Развернуть Запрет Электрон', click: () => { mainWindow.show(); } },
     { type: 'separator' },
     { label: 'Полный выход', click: () => {
         app.isQuiting = true;
@@ -83,7 +83,7 @@ app.whenReady().then(() => {
     }
   ])
 
-  tray.setToolTip('Zapret Pro: Загрузка...')
+  tray.setToolTip('Запрет Электрон: Загрузка...')
   tray.setContextMenu(contextMenu)
 
   globalShortcut.register('Ctrl+Shift+Z', () => {

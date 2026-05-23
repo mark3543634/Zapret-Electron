@@ -1,10 +1,10 @@
 [Setup]
-AppName=Zapret Pro
+AppName=Запрет Электрон
 AppVersion=5.9
 AppPublisher=ZapretPro
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
 DefaultDirName={autopf}\ZapretPro
-DefaultGroupName=Zapret Pro
+DefaultGroupName=Запрет Электрон
 OutputDir=.\releases
 OutputBaseFilename=ZapretPro-Setup-v5.9
 Compression=lzma2/ultra64
@@ -22,11 +22,11 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Source: "ZapretPro-win32-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Zapret Pro"; Filename: "{app}\ZapretPro.exe"
-Name: "{commondesktop}\Zapret Pro"; Filename: "{app}\ZapretPro.exe"
+Name: "{group}\Запрет Электрон"; Filename: "{app}\ZapretPro.exe"
+Name: "{commondesktop}\Запрет Электрон"; Filename: "{app}\ZapretPro.exe"
 
 [Run]
-Filename: "{app}\ZapretPro.exe"; Description: "Запустить Zapret Pro"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\ZapretPro.exe"; Description: "Запустить Запрет Электрон"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
