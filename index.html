@@ -647,6 +647,58 @@ textarea:focus { border-color: #444; color: #aaa; }
         if (line) line.textContent = '---';
     }
 
+    function fetchText(url) {
+        return new Promise((resolve, reject) => {
+            https.get(url, { timeout: 10000 }, (res) => {
+                if (res.statusCode !== 200) { res.resume(); reject(new Error('HTTP ' + res.statusCode)); return; }
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => resolve(data));
+            }).on('error', reject).on('timeout', function() { this.destroy(); reject(new Error('timeout')); });
+        });
+    }
+
+    async function UpdateLists() {
+        const btn = document.getElementById('updateBtn');
+        btn.textContent = '...';
+        btn.disabled = true;
+
+        const BASE  = 'https://raw.githubusercontent.com/mark3543634/Zapret-Electron/main/lists/';
+        const files = ['list-general.txt', 'ipset-all.txt', 'list-google.txt'];
+
+        logMsg('\n[>>] Обновление списков с GitHub...');
+        let ok = 0;
+        for (const name of files) {
+            try {
+                const data = await fetchText(BASE + name);
+                fs.writeFileSync(path.join(strPath, 'lists', name), data, 'utf8');
+                logMsg(`[OK] ${name} (${(data.length / 1024).toFixed(1)} KB)`);
+                ok++;
+            } catch(e) {
+                logMsg(`[!] ${name}: ${e.message}`);
+            }
+        }
+
+        logMsg(`[>] Готово: ${ok}/${files.length} файлов обновлено.`);
+
+        if (ok > 0 && isRunning) {
+            logMsg('[>>] Перезапуск движка с новыми списками...');
+            const strat = document.getElementById('stratSel').value;
+            const stratName = document.getElementById('stratSel').options[document.getElementById('stratSel').selectedIndex].text;
+            Nuke();
+            await new Promise(r => setTimeout(r, 1000));
+            spawnEngine(strat);
+            isRunning = true;
+            updateStatusUI('running', stratName);
+            setTrayStatus('running');
+            startTimer();
+            startPingMonitor();
+        }
+
+        btn.textContent = '[UPD]';
+        btn.disabled = false;
+    }
+
     function ExportReport() {
         const desktopPath = path.join(os.homedir(), 'Desktop', 'Zapret_Report.txt');
         let report = '=== ОТЧЕТ ZAPRET PRO ===\n\n' + document.getElementById('logArea').value + '\n\n';
@@ -737,6 +789,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 
 <div class="bottom-bar">
     <button class="btn btn-ghost" onclick="ExportReport()">ОТЧЁТ</button>
+    <button id="updateBtn" class="btn btn-ghost" onclick="UpdateLists()">[UPD]</button>
     <button class="btn btn-stop" style="flex:none;padding:10px 18px;" onclick="Nuke()">СБРОС</button>
 </div>
 
