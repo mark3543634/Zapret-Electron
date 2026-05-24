@@ -228,7 +228,16 @@ textarea:focus { border-color: #444; color: #aaa; }
     letter-spacing: 1px;
 }
 
-#pingLine, #timerLine { color: #777; }
+#pingLine, #timerLine, #watchdogLine { color: #777; }
+
+.card-title-row { display: flex; align-items: center; justify-content: space-between; }
+.quick-test-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.quick-test-row .btn { padding: 4px 10px; font-size: 10px; }
+.test-result { font-size: 10px; color: #555; letter-spacing: 1px; min-width: 70px; }
+.test-result.ok  { color: #888; }
+.test-result.err { color: #555; }
+.dns-row { display: flex; justify-content: space-between; font-size: 10px; color: #444; letter-spacing: 1px; margin-top: 4px; }
+.dns-row span { color: #666; }
 </style>
 
 <script>
@@ -283,6 +292,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 
     async function watchdogRestart() {
         watchdogRestarts++;
+        updateWatchdogUI();
         logMsg(`[!] WATCHDOG: движок упал. Перезапуск #${watchdogRestarts}...`);
         await new Promise(r => setTimeout(r, 1500));
         if (!isRunning) return;
@@ -352,8 +362,10 @@ textarea:focus { border-color: #444; color: #aaa; }
         if (localStorage.getItem('autostart') === 'true')
             document.getElementById('autostartChk').checked = true;
 
-        const savedStrat = localStorage.getItem('savedStrategy');
+        const fav = localStorage.getItem('favoriteStrategy');
+        const savedStrat = fav || localStorage.getItem('savedStrategy');
         if (savedStrat) document.getElementById('stratSel').value = savedStrat;
+        updateFavBtn();
 
         const h = localStorage.getItem('autoHistory');
         if (h) {
@@ -595,6 +607,7 @@ textarea:focus { border-color: #444; color: #aaa; }
     function startTimer() {
         engineStartTime = Date.now();
         document.getElementById('timerRow').style.display = 'block';
+        document.getElementById('watchdogRow').style.display = 'block';
         timerInterval = setInterval(() => {
             document.getElementById('timerLine').textContent = formatUptime(Date.now() - engineStartTime);
         }, 1000);
@@ -607,6 +620,14 @@ textarea:focus { border-color: #444; color: #aaa; }
         if (row) row.style.display = 'none';
         const line = document.getElementById('timerLine');
         if (line) line.textContent = '00:00:00';
+        document.getElementById('watchdogRow').style.display = 'none';
+        watchdogRestarts = 0;
+        document.getElementById('watchdogLine').textContent = '0';
+    }
+
+    function updateWatchdogUI() {
+        document.getElementById('watchdogRow').style.display = 'block';
+        document.getElementById('watchdogLine').textContent = watchdogRestarts + ' сбоев';
     }
 
     function measureLatency(host) {
@@ -699,6 +720,70 @@ textarea:focus { border-color: #444; color: #aaa; }
         btn.disabled = false;
     }
 
+    function ToggleFavorite() {
+        const val = document.getElementById('stratSel').value;
+        const cur = localStorage.getItem('favoriteStrategy');
+        if (cur === val) {
+            localStorage.removeItem('favoriteStrategy');
+            document.getElementById('favBtn').textContent = '[★]';
+            logMsg('[★] Избранная стратегия сброшена.');
+        } else {
+            localStorage.setItem('favoriteStrategy', val);
+            document.getElementById('favBtn').textContent = '[★✓]';
+            const name = document.getElementById('stratSel').selectedOptions[0].text;
+            logMsg(`[★] Избранная стратегия сохранена: ${name}`);
+        }
+    }
+
+    function updateFavBtn() {
+        const val = document.getElementById('stratSel').value;
+        const fav = localStorage.getItem('favoriteStrategy');
+        document.getElementById('favBtn').textContent = (fav === val) ? '[★✓]' : '[★]';
+    }
+
+    function QuickTest(host, resultId) {
+        const el = document.getElementById(resultId);
+        el.textContent = '...';
+        el.className = 'test-result';
+        const sock = new net.Socket();
+        let done = false;
+        sock.setTimeout(3000);
+        sock.connect(443, host, () => {
+            if (done) return; done = true;
+            sock.destroy();
+            el.textContent = '✓ ОК';
+            el.className = 'test-result ok';
+        });
+        sock.on('error', () => {
+            if (done) return; done = true;
+            el.textContent = '✗ блок';
+            el.className = 'test-result err';
+        });
+        sock.on('timeout', () => {
+            if (done) return; done = true;
+            sock.destroy();
+            el.textContent = '✗ таймаут';
+            el.className = 'test-result err';
+        });
+    }
+
+    function RunQuickTests() {
+        QuickTest('youtube.com', 'ytRes');
+        QuickTest('t.me',        'tgRes');
+        QuickTest('discord.com', 'dcRes');
+    }
+
+    function CheckDNS() {
+        const dns = require('dns');
+        const hosts = [['youtube.com','dnsYT'], ['discord.com','dnsDC'], ['t.me','dnsTG']];
+        hosts.forEach(([host, id]) => {
+            document.getElementById(id).textContent = '...';
+            dns.lookup(host, (err, addr) => {
+                document.getElementById(id).textContent = err ? '✗ ошибка' : addr;
+            });
+        });
+    }
+
     function ExportReport() {
         const desktopPath = path.join(os.homedir(), 'Desktop', 'Zapret_Report.txt');
         let report = '=== ОТЧЕТ ZAPRET ELECTRON ===\n\n' + document.getElementById('logArea').value + '\n\n';
@@ -723,13 +808,17 @@ textarea:focus { border-color: #444; color: #aaa; }
         <div id="statusSub" class="status-sub">Движок не активен</div>
         <div id="timerRow" class="timer-row">ВРЕМЯ&nbsp;<span id="timerLine">00:00:00</span></div>
         <div id="pingRow" class="ping-row">ПИНГ &nbsp;<span id="pingLine">---</span></div>
+        <div id="watchdogRow" class="timer-row">СБОЕВ&nbsp;<span id="watchdogLine">0</span></div>
     </div>
 </div>
 
 <div class="card">
-    <div class="card-title">Стратегия обхода</div>
-    <div class="select-wrap">
-        <select id="stratSel" onchange="SaveStrategyChoice()">
+    <div class="card-title-row">
+        <div class="card-title" style="margin-bottom:0">Стратегия обхода</div>
+        <button id="favBtn" class="btn btn-ghost btn-icon" onclick="ToggleFavorite()" title="Сохранить как избранную">[★]</button>
+    </div>
+    <div class="select-wrap" style="margin-top:8px">
+        <select id="stratSel" onchange="SaveStrategyChoice(); updateFavBtn()">
 
             <optgroup label="── КОМБО ──">
                 <option value="--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,49152-65535 --filter-udp=443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-fake-stun=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=443 --hostlist=&quot;lists\list-google.txt&quot; --ip-id=zero --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=80,443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-tcp=80,443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=49152-65535 --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-cutoff=n2">Комбо — TG + YouTube + Discord + Roblox</option>
@@ -750,6 +839,31 @@ textarea:focus { border-color: #444; color: #aaa; }
 
         </select>
     </div>
+</div>
+
+<div class="card">
+    <div class="card-title-row">
+        <div class="card-title" style="margin-bottom:0">Быстрый тест</div>
+        <button class="btn btn-ghost btn-icon" onclick="RunQuickTests()">[↻]</button>
+    </div>
+    <div class="quick-test-row">
+        <button class="btn btn-ghost" onclick="QuickTest('youtube.com','ytRes')">YT</button>
+        <span id="ytRes" class="test-result">—</span>
+        <button class="btn btn-ghost" onclick="QuickTest('t.me','tgRes')">TG</button>
+        <span id="tgRes" class="test-result">—</span>
+        <button class="btn btn-ghost" onclick="QuickTest('discord.com','dcRes')">DC</button>
+        <span id="dcRes" class="test-result">—</span>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-title-row">
+        <div class="card-title" style="margin-bottom:0">DNS-статус</div>
+        <button class="btn btn-ghost btn-icon" onclick="CheckDNS()">[↻]</button>
+    </div>
+    <div class="dns-row">youtube.com <span id="dnsYT">—</span></div>
+    <div class="dns-row">discord.com <span id="dnsDC">—</span></div>
+    <div class="dns-row">t.me        <span id="dnsTG">—</span></div>
 </div>
 
 <label class="autostart-row">
