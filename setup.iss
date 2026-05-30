@@ -1,16 +1,16 @@
 [Setup]
 AppName=Zapret Electron
-AppVersion=6.1
+AppVersion=6.3
 AppPublisher=ZapretPro
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
 DefaultDirName={autopf}\ZapretPro
 DefaultGroupName=Zapret Electron
 OutputDir=.\releases
-OutputBaseFilename=ZapretPro-Setup-v6.1
+OutputBaseFilename=ZapretPro-Setup-v6.3
 Compression=lzma2/ultra64
 SolidCompression=yes
 PrivilegesRequired=admin
-UninstallDisplayIcon={app}\ZapretPro.exe
+UninstallDisplayIcon={app}\Zapret Electron.exe
 WizardStyle=modern
 CloseApplications=yes
 CloseApplicationsFilter=*.exe
@@ -22,11 +22,11 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Source: "ZapretPro-win32-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Zapret Electron"; Filename: "{app}\ZapretPro.exe"
-Name: "{commondesktop}\Zapret Electron"; Filename: "{app}\ZapretPro.exe"
+Name: "{group}\Zapret Electron"; Filename: "{app}\Zapret Electron.exe"
+Name: "{commondesktop}\Zapret Electron"; Filename: "{app}\Zapret Electron.exe"
 
 [Run]
-Filename: "{app}\ZapretPro.exe"; Description: "Запустить Zapret Electron"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Zapret Electron.exe"; Description: "Запустить Zapret Electron"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

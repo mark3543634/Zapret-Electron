@@ -238,6 +238,21 @@ textarea:focus { border-color: #444; color: #aaa; }
 .test-result.err { color: #555; }
 .dns-row { display: flex; justify-content: space-between; font-size: 10px; color: #444; letter-spacing: 1px; margin-top: 4px; }
 .dns-row span { color: #666; }
+
+/* Mode toggle */
+.mode-toggle { display: flex; gap: 8px; margin: 10px 0 6px 0; }
+.mode-btn { flex: 1; padding: 8px 0; font-size: 13px; font-family: inherit; background: #111; color: #555; border: 1px solid #333; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: all 0.15s; }
+.mode-btn:hover { border-color: #555; color: #888; }
+.mode-btn.active { background: #1a1a1a; color: #c8ff00; border-color: #c8ff00; }
+
+/* Telegram proxy card */
+.proxy-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.proxy-label { color: #666; font-size: 11px; min-width: 54px; }
+.proxy-input { flex: 1; background: #111; border: 1px solid #333; color: #e0e0e0; padding: 6px 8px; font-family: inherit; font-size: 13px; }
+.proxy-input:focus { outline: none; border-color: #555; }
+.proxy-input::placeholder { color: #444; }
+.proxy-status { margin-top: 10px; font-size: 12px; color: #666; min-height: 16px; }
+.proxy-hint { margin-top: 8px; font-size: 11px; color: #555; line-height: 1.4; }
 </style>
 
 <script>
@@ -247,7 +262,7 @@ textarea:focus { border-color: #444; color: #aaa; }
     const os   = require('os');
     const https = require('https');
     const net   = require('net');
-    const { ipcRenderer } = require('electron');
+    const { ipcRenderer, shell } = require('electron');
 
     let isRunning        = false;
     let isAutoDetecting  = false;
@@ -355,6 +370,19 @@ textarea:focus { border-color: #444; color: #aaa; }
         new window.Notification('Zapret Electron', { body: state, silent: true });
     });
 
+    ipcRenderer.on('do-autostart', () => {
+        logMsg('[>>] Автозапуск при старте Windows. Активирую обход...');
+        StartEngine();
+        setTimeout(() => {
+            const sel = document.getElementById('stratSel');
+            const name = sel.options[sel.selectedIndex].text;
+            new window.Notification('Zapret Electron', {
+                body: `Обход активен: ${name}`,
+                silent: true
+            });
+        }, 3500);
+    });
+
     function Init() {
         if (fs.existsSync(excludeFile))
             document.getElementById('excludeArea').value = fs.readFileSync(excludeFile, 'utf8');
@@ -378,18 +406,14 @@ textarea:focus { border-color: #444; color: #aaa; }
         setTrayStatus('stopped');
         updateStatusUI('stopped', 'Движок не активен');
 
-        if (process.argv.includes('--autostart')) {
-            logMsg('[>>] Автозапуск при старте Windows. Активирую обход...');
-            StartEngine();
-            setTimeout(() => {
-                const sel = document.getElementById('stratSel');
-                const name = sel.options[sel.selectedIndex].text;
-                new window.Notification('Zapret Electron', {
-                    body: `Обход активен: ${name}`,
-                    silent: true
-                });
-            }, 3500);
-        }
+        ProxyLoad();
+        SetMode(localStorage.getItem('appMode') || 'bypass');
+
+        setTimeout(async () => {
+            logMsg('[>>] Фоновое обновление списков...');
+            const { okD, okP, totalD, totalP } = await downloadAllLists(true);
+            logMsg(`[>] Списки обновлены: DPI ${okD}/${totalD}, прокси ${okP}/${totalP}`);
+        }, 4000);
     }
 
     function ToggleAutostart() {
@@ -679,32 +703,51 @@ textarea:focus { border-color: #444; color: #aaa; }
         });
     }
 
+    async function downloadAllLists(silent) {
+        const DPI_BASE   = 'https://raw.githubusercontent.com/mark3543634/Zapret-Electron/main/lists/';
+        const PROXY_BASE = 'https://raw.githubusercontent.com/kort0881/telegram-proxy-collector/refs/heads/main/';
+        const dpiFiles   = ['list-general.txt', 'ipset-all.txt', 'list-google.txt'];
+        const proxyFiles = ['proxy_all.txt', 'proxy_eu.txt', 'proxy_ru.txt', 'proxy_list.txt'];
+        const log = silent
+            ? () => {}
+            : (m) => logMsg(m);
+
+        let okD = 0, okP = 0;
+
+        for (const name of dpiFiles) {
+            try {
+                const data = await fetchText(DPI_BASE + name);
+                fs.writeFileSync(path.join(strPath, 'lists', name), data, 'utf8');
+                log(`[OK] ${name} (${(data.length / 1024).toFixed(1)} KB)`);
+                okD++;
+            } catch(e) { log(`[!] ${name}: ${e.message}`); }
+        }
+
+        for (const name of proxyFiles) {
+            try {
+                const data = await fetchText(PROXY_BASE + name);
+                fs.writeFileSync(path.join(strPath, 'lists', name), data, 'utf8');
+                const cnt = data.split('\n').filter(l => l.startsWith('tg://')).length;
+                log(`[OK] ${name}: ${cnt} прокси`);
+                okP++;
+            } catch(e) { log(`[!] ${name}: ${e.message}`); }
+        }
+
+        return { okD, okP, totalD: dpiFiles.length, totalP: proxyFiles.length };
+    }
+
     async function UpdateLists() {
         const btn = document.getElementById('updateBtn');
         btn.textContent = '...';
         btn.disabled = true;
 
-        const BASE  = 'https://raw.githubusercontent.com/mark3543634/Zapret-Electron/main/lists/';
-        const files = ['list-general.txt', 'ipset-all.txt', 'list-google.txt'];
+        logMsg('\n[>>] Обновление всех списков с GitHub...');
+        const { okD, okP, totalD, totalP } = await downloadAllLists(false);
+        logMsg(`[>] DPI: ${okD}/${totalD} | Прокси: ${okP}/${totalP}`);
 
-        logMsg('\n[>>] Обновление списков с GitHub...');
-        let ok = 0;
-        for (const name of files) {
-            try {
-                const data = await fetchText(BASE + name);
-                fs.writeFileSync(path.join(strPath, 'lists', name), data, 'utf8');
-                logMsg(`[OK] ${name} (${(data.length / 1024).toFixed(1)} KB)`);
-                ok++;
-            } catch(e) {
-                logMsg(`[!] ${name}: ${e.message}`);
-            }
-        }
-
-        logMsg(`[>] Готово: ${ok}/${files.length} файлов обновлено.`);
-
-        if (ok > 0 && isRunning) {
+        if (okD > 0 && isRunning) {
             logMsg('[>>] Перезапуск движка с новыми списками...');
-            const strat = document.getElementById('stratSel').value;
+            const strat     = document.getElementById('stratSel').value;
             const stratName = document.getElementById('stratSel').options[document.getElementById('stratSel').selectedIndex].text;
             Nuke();
             await new Promise(r => setTimeout(r, 1000));
@@ -768,9 +811,10 @@ textarea:focus { border-color: #444; color: #aaa; }
     }
 
     function RunQuickTests() {
-        QuickTest('youtube.com', 'ytRes');
-        QuickTest('t.me',        'tgRes');
-        QuickTest('discord.com', 'dcRes');
+        QuickTest('youtube.com',    'ytRes');
+        QuickTest('149.154.167.51', 'tgRes');
+        QuickTest('91.108.56.130',  'tgRes2');
+        QuickTest('discord.com',    'dcRes');
     }
 
     function CheckDNS() {
@@ -792,15 +836,261 @@ textarea:focus { border-color: #444; color: #aaa; }
         fs.writeFileSync(desktopPath, report);
         alert('Отчет сохранён на рабочем столе!');
     }
+
+    function SetMode(mode) {
+        localStorage.setItem('appMode', mode);
+        document.getElementById('modeBypass').style.display   = (mode === 'bypass')   ? '' : 'none';
+        document.getElementById('modeTelegram').style.display = (mode === 'telegram') ? '' : 'none';
+        document.getElementById('modeBtnBypass').className   = 'mode-btn' + (mode === 'bypass'   ? ' active' : '');
+        document.getElementById('modeBtnTelegram').className = 'mode-btn' + (mode === 'telegram' ? ' active' : '');
+    }
+
+    function ProxyTypeChange() {
+        const type = document.getElementById('proxyType').value;
+        document.getElementById('proxySecretRow').style.display = (type === 'mtproto') ? '' : 'none';
+        document.getElementById('proxyAuthRow').style.display   = (type === 'socks5')  ? '' : 'none';
+        document.getElementById('proxyPassRow').style.display   = (type === 'socks5')  ? '' : 'none';
+    }
+
+    function ProxySave() {
+        localStorage.setItem('proxyType',   document.getElementById('proxyType').value);
+        localStorage.setItem('proxyServer', document.getElementById('proxyServer').value);
+        localStorage.setItem('proxyPort',   document.getElementById('proxyPort').value);
+        localStorage.setItem('proxySecret', document.getElementById('proxySecret').value);
+        localStorage.setItem('proxyUser',   document.getElementById('proxyUser').value);
+        localStorage.setItem('proxyPass',   document.getElementById('proxyPass').value);
+    }
+
+    function ProxyLoad() {
+        const type = localStorage.getItem('proxyType') || 'mtproto';
+        document.getElementById('proxyType').value   = type;
+        document.getElementById('proxyServer').value = localStorage.getItem('proxyServer') || '';
+        document.getElementById('proxyPort').value   = localStorage.getItem('proxyPort')   || '';
+        document.getElementById('proxySecret').value = localStorage.getItem('proxySecret') || '';
+        document.getElementById('proxyUser').value   = localStorage.getItem('proxyUser')   || '';
+        document.getElementById('proxyPass').value   = localStorage.getItem('proxyPass')   || '';
+        ProxyTypeChange();
+    }
+
+    function ProxyOpen() {
+        ProxySave();
+        const type   = document.getElementById('proxyType').value;
+        const server = document.getElementById('proxyServer').value.trim();
+        const port   = document.getElementById('proxyPort').value.trim();
+        const secret = document.getElementById('proxySecret').value.trim();
+        const user   = document.getElementById('proxyUser').value.trim();
+        const pass   = document.getElementById('proxyPass').value.trim();
+        const status = document.getElementById('proxyStatus');
+
+        if (!server || !port) {
+            status.style.color = '#ff4444';
+            status.textContent = '⚠ Укажите сервер и порт';
+            return;
+        }
+
+        let url;
+        if (type === 'mtproto') {
+            url = `tg://proxy?server=${encodeURIComponent(server)}&port=${port}&secret=${encodeURIComponent(secret)}`;
+        } else {
+            url = `tg://socks?server=${encodeURIComponent(server)}&port=${port}&user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}`;
+        }
+
+        shell.openExternal(url);
+        status.style.color = '#c8ff00';
+        status.textContent = '✔ Telegram открыт — нажмите «Использовать» в диалоге';
+        logProxy(`[>>] Открываем: ${url}`);
+    }
+
+    function ProxyTest() {
+        const server = document.getElementById('proxyServer').value.trim();
+        const port   = parseInt(document.getElementById('proxyPort').value.trim(), 10);
+        const status = document.getElementById('proxyStatus');
+
+        if (!server || !port) {
+            status.style.color = '#ff4444';
+            status.textContent = '⚠ Укажите сервер и порт';
+            return;
+        }
+
+        status.style.color = '#666';
+        status.textContent = '...тестируем подключение...';
+        logProxy(`[?] TCP тест → ${server}:${port}`);
+
+        const t0 = Date.now();
+        const sock = new net.Socket();
+        sock.setTimeout(5000);
+        sock.connect(port, server, () => {
+            const ms = Date.now() - t0;
+            sock.destroy();
+            status.style.color = '#c8ff00';
+            status.textContent = `✔ Доступен — ${ms} мс`;
+            logProxy(`[+] Успех: ${ms} мс`);
+        });
+        sock.on('error', (e) => {
+            sock.destroy();
+            status.style.color = '#ff4444';
+            status.textContent = `✘ Ошибка: ${e.message}`;
+            logProxy(`[!] Ошибка: ${e.message}`);
+        });
+        sock.on('timeout', () => {
+            sock.destroy();
+            status.style.color = '#ff4444';
+            status.textContent = '✘ Таймаут (5 сек)';
+            logProxy('[!] Таймаут');
+        });
+    }
+
+    function logProxy(msg) {
+        const el = document.getElementById('proxyLog');
+        if (el) { el.value += msg + '\n'; el.scrollTop = el.scrollHeight; }
+    }
+
+    function ProxyAutoFind() {
+        const statusEl = document.getElementById('proxyStatus');
+        const btn      = document.getElementById('autoFindBtn');
+        btn.disabled = true;
+        btn.textContent = '...';
+        statusEl.style.color = '#666';
+        statusEl.textContent = 'Загружаем списки прокси...';
+        const proxyLog = document.getElementById('proxyLog');
+        if (proxyLog) proxyLog.value = '';
+
+        const BASE = 'https://raw.githubusercontent.com/kort0881/telegram-proxy-collector/refs/heads/main/';
+        const SOURCES = [
+            { url: BASE + 'proxy_all.txt',  label: 'proxy_all', file: 'proxy_all.txt' },
+            { url: BASE + 'proxy_eu.txt',   label: 'proxy_eu',  file: 'proxy_eu.txt' },
+            { url: BASE + 'proxy_ru.txt',   label: 'proxy_ru',  file: 'proxy_ru.txt' },
+            { url: BASE + 'proxy_list.txt', label: 'proxy_list', file: 'proxy_list.txt', limit: 300 },
+        ];
+
+        function fetchProxyText(url, file, cb) {
+            const localPath = path.join(strPath, 'lists', file);
+            if (fs.existsSync(localPath)) {
+                try { return cb(null, fs.readFileSync(localPath, 'utf8'), true); } catch(e) {}
+            }
+            https.get(url, (res) => {
+                let d = '';
+                res.on('data', c => d += c);
+                res.on('end', () => cb(null, d, false));
+            }).on('error', e => cb(e, '', false));
+        }
+
+        logProxy(`[>>] Загружаем ${SOURCES.length} источника...`);
+
+        function parseLinks(text, limit) {
+            const result = [];
+            for (const line of text.split('\n')) {
+                if (limit && result.length >= limit) break;
+                const t = line.trim();
+                if (!t.startsWith('tg://proxy?')) continue;
+                try {
+                    const params = new URLSearchParams(t.replace('tg://proxy?', ''));
+                    const server = params.get('server');
+                    const port   = parseInt(params.get('port'), 10);
+                    const secret = params.get('secret') || '';
+                    if (server && port) result.push({ server, port, secret });
+                } catch(e) {}
+            }
+            return result;
+        }
+
+        let pending = SOURCES.length;
+        const seen  = new Set();
+        const proxies = [];
+
+        function onSourceDone() {
+            pending--;
+            if (pending > 0) return;
+
+            if (!proxies.length) {
+                btn.disabled = false; btn.textContent = '✦ АВТОПОИСК';
+                statusEl.style.color = '#ff4444';
+                statusEl.textContent = '✘ Не удалось загрузить прокси';
+                return;
+            }
+
+            logProxy(`[+] Итого уникальных: ${proxies.length} — тестируем...`);
+            statusEl.textContent = `Тестируем ${proxies.length} прокси...`;
+
+            const results = [];
+            let done = 0;
+
+            function onDone() {
+                done++;
+                statusEl.textContent = `Тестируем... (${done}/${proxies.length})`;
+                if (done < proxies.length) return;
+
+                btn.disabled = false;
+                btn.textContent = '✦ АВТОПОИСК';
+                results.sort((a, b) => a.ping - b.ping);
+                const best = results[0];
+
+                if (!best) {
+                    statusEl.style.color = '#ff4444';
+                    statusEl.textContent = '✘ Нет доступных прокси';
+                    logProxy('[!] Все прокси недоступны');
+                    return;
+                }
+
+                logProxy(`\n[★] Лучший: ${best.server}:${best.port} — ${best.ping} мс`);
+                document.getElementById('proxyServer').value = best.server;
+                document.getElementById('proxyPort').value   = best.port;
+                document.getElementById('proxySecret').value = best.secret;
+                document.getElementById('proxyType').value   = 'mtproto';
+                ProxyTypeChange();
+                ProxySave();
+                statusEl.style.color = '#c8ff00';
+                statusEl.textContent = `✔ Лучший: ${best.server}:${best.port} — ${best.ping} мс. Нажмите «Применить»`;
+            }
+
+            for (const proxy of proxies) {
+                const t0   = Date.now();
+                const sock = new net.Socket();
+                sock.setTimeout(4000);
+                sock.connect(proxy.port, proxy.server, () => {
+                    const ping = Date.now() - t0;
+                    sock.destroy();
+                    results.push({ ...proxy, ping });
+                    logProxy(`[+] ${proxy.server}:${proxy.port} — ${ping} мс`);
+                    onDone();
+                });
+                sock.on('error', () => { sock.destroy(); onDone(); });
+                sock.on('timeout', () => { sock.destroy(); onDone(); });
+            }
+        }
+
+        for (const src of SOURCES) {
+            fetchProxyText(src.url, src.file, (err, text, fromCache) => {
+                if (err) {
+                    logProxy(`[!] Ошибка ${src.label}: ${err.message}`);
+                } else {
+                    const list = parseLinks(text, src.limit);
+                    let added = 0;
+                    for (const p of list) {
+                        const key = `${p.server}:${p.port}`;
+                        if (!seen.has(key)) { seen.add(key); proxies.push(p); added++; }
+                    }
+                    logProxy(`[+] ${src.label}: ${added} прокси${fromCache ? ' (кэш)' : ' (сеть)'}`);
+                }
+                onSourceDone();
+            });
+        }
+    }
 </script>
 </head>
 <body onload="Init()">
 
 <div class="header">
     <div class="logo">ZAPRET ELECTRON</div>
-    <div class="version">v5.8</div>
+    <div class="version">v6.3</div>
 </div>
 
+<div class="mode-toggle">
+    <button id="modeBtnBypass" class="mode-btn active" onclick="SetMode('bypass')">◼ ОБХОД</button>
+    <button id="modeBtnTelegram" class="mode-btn" onclick="SetMode('telegram')">◻ TELEGRAM</button>
+</div>
+
+<div id="modeBypass">
 <div id="statusCard" class="status-card">
     <div id="statusDot" class="status-dot"></div>
     <div class="status-info">
@@ -821,7 +1111,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         <select id="stratSel" onchange="SaveStrategyChoice(); updateFavBtn()">
 
             <optgroup label="── КОМБО ──">
-                <option value="--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,49152-65535 --filter-udp=443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-fake-stun=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=443 --hostlist=&quot;lists\list-google.txt&quot; --ip-id=zero --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=80,443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-tcp=80,443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=49152-65535 --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-cutoff=n2">Комбо — TG + YouTube + Discord + Roblox</option>
+                <option value="--wf-tcp=80,443,2053,2083,2087,2096,5222,8443 --wf-udp=443,19294-19344,49152-65535 --filter-udp=443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-fake-discord=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-fake-stun=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-repeats=6 --new --filter-tcp=2053,2083,2087,2096,8443 --hostlist-domains=discord.media --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=443 --hostlist=&quot;lists\list-google.txt&quot; --ip-id=zero --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=80,443 --hostlist=&quot;lists\list-general.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-tcp=80,443,5222 --ipset=&quot;lists\ipset-telegram.txt&quot; --dpi-desync=syndata,multidisorder --new --filter-udp=443 --ipset=&quot;lists\ipset-telegram.txt&quot; --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=11 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-udp=443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic=&quot;bin\quic_initial_www_google_com.bin&quot; --new --filter-tcp=80,443 --ipset=&quot;lists\ipset-all.txt&quot; --hostlist-exclude=&quot;lists\list-exclude.txt&quot; --ipset-exclude=&quot;lists\ipset-exclude.txt&quot; --dpi-desync=fake,fakedsplit --dpi-desync-repeats=6 --dpi-desync-fooling=ts --dpi-desync-fakedsplit-pattern=0x00 --dpi-desync-fake-tls=&quot;bin\tls_clienthello_www_google_com.bin&quot; --new --filter-udp=49152-65535 --dpi-desync=fake --dpi-desync-autottl=2 --dpi-desync-repeats=6 --dpi-desync-any-protocol=1 --dpi-desync-fake-unknown-udp=&quot;bin\quic_initial_www_google_com.bin&quot; --dpi-desync-cutoff=n2">Комбо — YouTube + Discord + Roblox</option>
             </optgroup>
 
             <optgroup label="── УНИВЕРСАЛЬНЫЕ ──">
@@ -849,8 +1139,10 @@ textarea:focus { border-color: #444; color: #aaa; }
     <div class="quick-test-row">
         <button class="btn btn-ghost" onclick="QuickTest('youtube.com','ytRes')">YT</button>
         <span id="ytRes" class="test-result">—</span>
-        <button class="btn btn-ghost" onclick="QuickTest('t.me','tgRes')">TG</button>
+        <button class="btn btn-ghost" onclick="QuickTest('149.154.167.51','tgRes')">TG-DC1</button>
         <span id="tgRes" class="test-result">—</span>
+        <button class="btn btn-ghost" onclick="QuickTest('91.108.56.130','tgRes2')">TG-DC2</button>
+        <span id="tgRes2" class="test-result">—</span>
         <button class="btn btn-ghost" onclick="QuickTest('discord.com','dcRes')">DC</button>
         <span id="dcRes" class="test-result">—</span>
     </div>
@@ -906,6 +1198,53 @@ textarea:focus { border-color: #444; color: #aaa; }
     <button id="updateBtn" class="btn btn-ghost" onclick="UpdateLists()">[UPD]</button>
     <button class="btn btn-stop" style="flex:none;padding:10px 18px;" onclick="Nuke()">СБРОС</button>
 </div>
+</div><!-- /modeBypass -->
+
+<div id="modeTelegram" style="display:none">
+<div class="card">
+    <div class="card-title">Прокси Telegram</div>
+    <div class="proxy-row">
+        <span class="proxy-label">Тип</span>
+        <select id="proxyType" class="proxy-input" onchange="ProxyTypeChange()">
+            <option value="mtproto">MTProto</option>
+            <option value="socks5">SOCKS5</option>
+        </select>
+    </div>
+    <div class="proxy-row">
+        <span class="proxy-label">Сервер</span>
+        <input id="proxyServer" class="proxy-input" type="text" placeholder="proxy.example.com">
+    </div>
+    <div class="proxy-row">
+        <span class="proxy-label">Порт</span>
+        <input id="proxyPort" class="proxy-input" type="number" placeholder="443" style="max-width:90px">
+    </div>
+    <div id="proxySecretRow" class="proxy-row">
+        <span class="proxy-label">Секрет</span>
+        <input id="proxySecret" class="proxy-input" type="text" placeholder="dd...">
+    </div>
+    <div id="proxyAuthRow" class="proxy-row" style="display:none">
+        <span class="proxy-label">Логин</span>
+        <input id="proxyUser" class="proxy-input" type="text" placeholder="username">
+    </div>
+    <div id="proxyPassRow" class="proxy-row" style="display:none">
+        <span class="proxy-label">Пароль</span>
+        <input id="proxyPass" class="proxy-input" type="password" placeholder="password">
+    </div>
+    <div class="proxy-status" id="proxyStatus"></div>
+    <div class="proxy-hint">Нажмите «Применить» — Telegram откроется с уже заполненными данными прокси.</div>
+</div>
+
+<div class="btn-row">
+    <button id="autoFindBtn" class="btn btn-primary" onclick="ProxyAutoFind()">✦ АВТОПОИСК</button>
+    <button class="btn btn-ghost" onclick="ProxyTest()">ТЕСТ</button>
+</div>
+<div class="btn-row" style="margin-top:6px">
+    <button class="btn btn-primary" onclick="ProxyOpen()">▶ ПРИМЕНИТЬ В TELEGRAM</button>
+</div>
+
+<div class="log-title">Журнал</div>
+<textarea id="proxyLog" style="height:120px;" readonly></textarea>
+</div><!-- /modeTelegram -->
 
 </body>
 </html>

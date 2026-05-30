@@ -38,7 +38,9 @@ function createWindow () {
   const startMinimized = process.argv.includes('--autostart');
 
   let windowIcon;
-  if (fs.existsSync(path.join(__dirname, 'icon.png'))) {
+  if (fs.existsSync(path.join(__dirname, 'icon.ico'))) {
+      windowIcon = path.join(__dirname, 'icon.ico');
+  } else if (fs.existsSync(path.join(__dirname, 'icon.png'))) {
       windowIcon = path.join(__dirname, 'icon.png');
   }
 
@@ -67,7 +69,14 @@ function createWindow () {
 }
 
 app.whenReady().then(() => {
+  const shouldAutostart = process.argv.includes('--autostart');
   createWindow()
+
+  if (shouldAutostart) {
+    mainWindow.webContents.on('did-finish-load', () => {
+      mainWindow.webContents.send('do-autostart');
+    });
+  }
 
   tray = new Tray(emptyIcon);
   

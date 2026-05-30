@@ -278,7 +278,6 @@ telegram.website
 telegram.xyz
 telegram-cdn.org
 telegra.ph
-telesca.pe
 tg.dev
 tg.org
 tx.me
@@ -306,3 +305,11 @@ turn.twilio.com
 ocsp.digicert.com
 crl.verisign.com
 ocsp.verisign.com
+telesco.pe
+mail.telegram.org
+smtp.telegram.org
+pluto.web.telegram.org
+venus.web.telegram.org
+vesta.web.telegram.org
+contest.com
+quiz.directory
