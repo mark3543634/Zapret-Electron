@@ -7,9 +7,12 @@
 
 ## Скачать
 
-**[→ ZapretPro-Setup-v6.0.exe](https://github.com/mark3543634/Zapret-Electron/releases/download/v6.0/ZapretPro-Setup-v6.0.exe)**
+### **[⬇ Скачать последнюю версию](https://github.com/mark3543634/Zapret-Electron/releases/latest)**
 
-Или открой [Releases](https://github.com/mark3543634/Zapret-Electron/releases) и скачай последнюю версию.
+Кнопка выше всегда ведёт на самый свежий релиз — качай файл `ZapretElectron-Setup-*.exe`.
+
+Текущая версия — **v6.5**: [прямая ссылка на установщик](https://github.com/mark3543634/Zapret-Electron/releases/download/v6.5/ZapretElectron-Setup-v6.5.exe)  
+Все версии и история изменений: [Releases](https://github.com/mark3543634/Zapret-Electron/releases).
 
 ## Требования
 
@@ -18,7 +21,7 @@
 
 ## Установка
 
-1. Скачай `ZapretPro-Setup-v6.0.exe`
+1. Скачай установщик `ZapretElectron-Setup-*.exe` (см. раздел [Скачать](#скачать))
 2. Запусти установщик
 3. После установки запусти Zapret Electron
 4. Выбери стратегию → нажми **▶ ЗАПУСТИТЬ**
