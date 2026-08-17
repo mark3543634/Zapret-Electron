@@ -274,6 +274,8 @@ textarea:focus { border-color: #444; color: #aaa; }
     let engineStartTime  = null;
     let engineProcess    = null;
     let watchdogRestarts = 0;
+    let listRefreshInterval = null;
+    let proxySearchRunning = false;
 
     const strPath       = __dirname;
     const excludeFile   = path.join(strPath, 'lists', 'list-exclude.txt');
@@ -409,11 +411,16 @@ textarea:focus { border-color: #444; color: #aaa; }
         ProxyLoad();
         SetMode(localStorage.getItem('appMode') || 'bypass');
 
-        setTimeout(async () => {
+        const backgroundListRefresh = async () => {
             logMsg('[>>] Фоновое обновление списков...');
             const { okD, okP, totalD, totalP } = await downloadAllLists(true);
             logMsg(`[>] Списки обновлены: DPI ${okD}/${totalD}, прокси ${okP}/${totalP}`);
-        }, 4000);
+        };
+
+        setTimeout(backgroundListRefresh, 4000);
+        if (!listRefreshInterval) {
+            listRefreshInterval = setInterval(backgroundListRefresh, 30 * 60 * 1000);
+        }
     }
 
     function ToggleAutostart() {
@@ -692,15 +699,64 @@ textarea:focus { border-color: #444; color: #aaa; }
         if (line) line.textContent = '---';
     }
 
-    function fetchText(url) {
+    function fetchText(url, redirects = 0) {
         return new Promise((resolve, reject) => {
-            https.get(url, { timeout: 10000 }, (res) => {
-                if (res.statusCode !== 200) { res.resume(); reject(new Error('HTTP ' + res.statusCode)); return; }
+            if (redirects > 5) {
+                reject(new Error('слишком много перенаправлений'));
+                return;
+            }
+
+            const requestUrl = new URL(url);
+            requestUrl.searchParams.set('_zapret_ts', Date.now().toString());
+            const request = https.get(requestUrl, {
+                timeout: 12000,
+                headers: {
+                    'User-Agent': 'Zapret-Electron/6.6',
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache',
+                    'Accept': 'text/plain,*/*;q=0.8'
+                }
+            }, (res) => {
+                if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                    const nextUrl = new URL(res.headers.location, requestUrl).href;
+                    res.resume();
+                    fetchText(nextUrl, redirects + 1).then(resolve, reject);
+                    return;
+                }
+                if (res.statusCode !== 200) {
+                    res.resume();
+                    reject(new Error('HTTP ' + res.statusCode));
+                    return;
+                }
+
                 let data = '';
-                res.on('data', chunk => data += chunk);
+                res.on('data', chunk => {
+                    data += chunk;
+                    if (data.length > 8 * 1024 * 1024) {
+                        request.destroy(new Error('ответ слишком большой'));
+                    }
+                });
                 res.on('end', () => resolve(data));
-            }).on('error', reject).on('timeout', function() { this.destroy(); reject(new Error('timeout')); });
+            });
+            request.on('error', reject);
+            request.on('timeout', () => request.destroy(new Error('таймаут')));
         });
+    }
+
+    function writeTextCache(filePath, data) {
+        const tempPath = `${filePath}.tmp-${process.pid}`;
+        fs.writeFileSync(tempPath, data, 'utf8');
+        try {
+            fs.renameSync(tempPath, filePath);
+        } catch (e) {
+            // Windows может не заменить существующий файл через rename.
+            fs.copyFileSync(tempPath, filePath);
+            fs.unlinkSync(tempPath);
+        }
+    }
+
+    function countProxyLinks(data) {
+        return data.split(/\r?\n/).filter(line => /^tg:\/\/proxy\?/i.test(line.trim())).length;
     }
 
     async function downloadAllLists(silent) {
@@ -717,7 +773,8 @@ textarea:focus { border-color: #444; color: #aaa; }
         for (const name of dpiFiles) {
             try {
                 const data = await fetchText(DPI_BASE + name);
-                fs.writeFileSync(path.join(strPath, 'lists', name), data, 'utf8');
+                if (data.trim().length < 10) throw new Error('получен пустой список');
+                writeTextCache(path.join(strPath, 'lists', name), data);
                 log(`[OK] ${name} (${(data.length / 1024).toFixed(1)} KB)`);
                 okD++;
             } catch(e) { log(`[!] ${name}: ${e.message}`); }
@@ -726,8 +783,9 @@ textarea:focus { border-color: #444; color: #aaa; }
         for (const name of proxyFiles) {
             try {
                 const data = await fetchText(PROXY_BASE + name);
-                fs.writeFileSync(path.join(strPath, 'lists', name), data, 'utf8');
-                const cnt = data.split('\n').filter(l => l.startsWith('tg://')).length;
+                const cnt = countProxyLinks(data);
+                if (!cnt) throw new Error('источник вернул пустой список');
+                writeTextCache(path.join(strPath, 'lists', name), data);
                 log(`[OK] ${name}: ${cnt} прокси`);
                 okP++;
             } catch(e) { log(`[!] ${name}: ${e.message}`); }
@@ -901,7 +959,28 @@ textarea:focus { border-color: #444; color: #aaa; }
         logProxy(`[>>] Открываем: ${url}`);
     }
 
-    function ProxyTest() {
+    function testProxyEndpoint(server, port, timeoutMs = 4000) {
+        return new Promise((resolve) => {
+            const startedAt = Date.now();
+            const sock = new net.Socket();
+            let settled = false;
+
+            const finish = (result) => {
+                if (settled) return;
+                settled = true;
+                sock.destroy();
+                resolve(result);
+            };
+
+            sock.setTimeout(timeoutMs);
+            sock.once('connect', () => finish({ ping: Date.now() - startedAt }));
+            sock.once('error', (error) => finish({ error }));
+            sock.once('timeout', () => finish({ error: new Error('таймаут') }));
+            sock.connect(port, server);
+        });
+    }
+
+    async function ProxyTest() {
         const server = document.getElementById('proxyServer').value.trim();
         const port   = parseInt(document.getElementById('proxyPort').value.trim(), 10);
         const status = document.getElementById('proxyStatus');
@@ -916,28 +995,16 @@ textarea:focus { border-color: #444; color: #aaa; }
         status.textContent = '...тестируем подключение...';
         logProxy(`[?] TCP тест → ${server}:${port}`);
 
-        const t0 = Date.now();
-        const sock = new net.Socket();
-        sock.setTimeout(5000);
-        sock.connect(port, server, () => {
-            const ms = Date.now() - t0;
-            sock.destroy();
+        const result = await testProxyEndpoint(server, port, 5000);
+        if (result.ping !== undefined) {
             status.style.color = '#c8ff00';
-            status.textContent = `✔ Доступен — ${ms} мс`;
-            logProxy(`[+] Успех: ${ms} мс`);
-        });
-        sock.on('error', (e) => {
-            sock.destroy();
+            status.textContent = `✔ TCP доступен — ${result.ping} мс`;
+            logProxy(`[+] TCP доступен: ${result.ping} мс`);
+        } else {
             status.style.color = '#ff4444';
-            status.textContent = `✘ Ошибка: ${e.message}`;
-            logProxy(`[!] Ошибка: ${e.message}`);
-        });
-        sock.on('timeout', () => {
-            sock.destroy();
-            status.style.color = '#ff4444';
-            status.textContent = '✘ Таймаут (5 сек)';
-            logProxy('[!] Таймаут');
-        });
+            status.textContent = `✘ Ошибка: ${result.error.message}`;
+            logProxy(`[!] Ошибка: ${result.error.message}`);
+        }
     }
 
     function logProxy(msg) {
@@ -945,7 +1012,10 @@ textarea:focus { border-color: #444; color: #aaa; }
         if (el) { el.value += msg + '\n'; el.scrollTop = el.scrollHeight; }
     }
 
-    function ProxyAutoFind() {
+    async function ProxyAutoFind() {
+        if (proxySearchRunning) return;
+        proxySearchRunning = true;
+
         const statusEl = document.getElementById('proxyStatus');
         const btn      = document.getElementById('autoFindBtn');
         btn.disabled = true;
@@ -957,22 +1027,16 @@ textarea:focus { border-color: #444; color: #aaa; }
 
         const BASE = 'https://raw.githubusercontent.com/kort0881/telegram-proxy-collector/refs/heads/main/';
         const SOURCES = [
-            { url: BASE + 'proxy_all.txt',  label: 'proxy_all', file: 'proxy_all.txt' },
-            { url: BASE + 'proxy_eu.txt',   label: 'proxy_eu',  file: 'proxy_eu.txt' },
-            { url: BASE + 'proxy_ru.txt',   label: 'proxy_ru',  file: 'proxy_ru.txt' },
-            { url: BASE + 'proxy_list.txt', label: 'proxy_list', file: 'proxy_list.txt', limit: 300 },
+            { url: BASE + 'proxy_ru.txt',   label: 'proxy_ru',   file: 'proxy_ru.txt',   limit: 100 },
+            { url: BASE + 'proxy_all.txt',  label: 'proxy_all',  file: 'proxy_all.txt',  limit: 150 },
+            { url: BASE + 'proxy_eu.txt',   label: 'proxy_eu',   file: 'proxy_eu.txt',   limit: 100 },
+            { url: BASE + 'proxy_list.txt', label: 'proxy_list', file: 'proxy_list.txt', limit: 100 },
         ];
 
-        function fetchProxyText(url, file, cb) {
-            const localPath = path.join(strPath, 'lists', file);
-            if (fs.existsSync(localPath)) {
-                try { return cb(null, fs.readFileSync(localPath, 'utf8'), true); } catch(e) {}
-            }
-            https.get(url, (res) => {
-                let d = '';
-                res.on('data', c => d += c);
-                res.on('end', () => cb(null, d, false));
-            }).on('error', e => cb(e, '', false));
+        function finishSearch() {
+            proxySearchRunning = false;
+            btn.disabled = false;
+            btn.textContent = '✦ АВТОПОИСК';
         }
 
         logProxy(`[>>] Загружаем ${SOURCES.length} источника...`);
@@ -984,96 +1048,118 @@ textarea:focus { border-color: #444; color: #aaa; }
                 const t = line.trim();
                 if (!t.startsWith('tg://proxy?')) continue;
                 try {
-                    const params = new URLSearchParams(t.replace('tg://proxy?', ''));
-                    const server = params.get('server');
-                    const port   = parseInt(params.get('port'), 10);
-                    const secret = params.get('secret') || '';
-                    if (server && port) result.push({ server, port, secret });
+                    const readParam = (name) => {
+                        const match = t.match(new RegExp(`(?:[?&])${name}=([^&]*)`, 'i'));
+                        return match ? decodeURIComponent(match[1]) : '';
+                    };
+                    const server = readParam('server').trim();
+                    const port   = parseInt(readParam('port'), 10);
+                    const secret = readParam('secret').trim();
+                    const validServer = /^[a-z0-9._:-]+$/i.test(server);
+                    if (validServer && port > 0 && port <= 65535 && secret) {
+                        result.push({ server, port, secret });
+                    }
                 } catch(e) {}
             }
             return result;
         }
 
-        let pending = SOURCES.length;
-        const seen  = new Set();
-        const proxies = [];
-
-        function onSourceDone() {
-            pending--;
-            if (pending > 0) return;
-
-            if (!proxies.length) {
-                btn.disabled = false; btn.textContent = '✦ АВТОПОИСК';
-                statusEl.style.color = '#ff4444';
-                statusEl.textContent = '✘ Не удалось загрузить прокси';
-                return;
-            }
-
-            logProxy(`[+] Итого уникальных: ${proxies.length} — тестируем...`);
-            statusEl.textContent = `Тестируем ${proxies.length} прокси...`;
-
-            const results = [];
-            let done = 0;
-
-            function onDone() {
-                done++;
-                statusEl.textContent = `Тестируем... (${done}/${proxies.length})`;
-                if (done < proxies.length) return;
-
-                btn.disabled = false;
-                btn.textContent = '✦ АВТОПОИСК';
-                results.sort((a, b) => a.ping - b.ping);
-                const best = results[0];
-
-                if (!best) {
-                    statusEl.style.color = '#ff4444';
-                    statusEl.textContent = '✘ Нет доступных прокси';
-                    logProxy('[!] Все прокси недоступны');
-                    return;
+        async function loadProxySource(src) {
+            const localPath = path.join(strPath, 'lists', src.file);
+            try {
+                const text = await fetchText(src.url);
+                if (!countProxyLinks(text)) throw new Error('источник вернул пустой список');
+                writeTextCache(localPath, text);
+                return { text, fromCache: false };
+            } catch (networkError) {
+                if (fs.existsSync(localPath)) {
+                    const cached = fs.readFileSync(localPath, 'utf8');
+                    if (countProxyLinks(cached)) {
+                        return { text: cached, fromCache: true, networkError };
+                    }
                 }
-
-                logProxy(`\n[★] Лучший: ${best.server}:${best.port} — ${best.ping} мс`);
-                document.getElementById('proxyServer').value = best.server;
-                document.getElementById('proxyPort').value   = best.port;
-                document.getElementById('proxySecret').value = best.secret;
-                document.getElementById('proxyType').value   = 'mtproto';
-                ProxyTypeChange();
-                ProxySave();
-                statusEl.style.color = '#c8ff00';
-                statusEl.textContent = `✔ Лучший: ${best.server}:${best.port} — ${best.ping} мс. Нажмите «Применить»`;
-            }
-
-            for (const proxy of proxies) {
-                const t0   = Date.now();
-                const sock = new net.Socket();
-                sock.setTimeout(4000);
-                sock.connect(proxy.port, proxy.server, () => {
-                    const ping = Date.now() - t0;
-                    sock.destroy();
-                    results.push({ ...proxy, ping });
-                    logProxy(`[+] ${proxy.server}:${proxy.port} — ${ping} мс`);
-                    onDone();
-                });
-                sock.on('error', () => { sock.destroy(); onDone(); });
-                sock.on('timeout', () => { sock.destroy(); onDone(); });
+                throw networkError;
             }
         }
 
-        for (const src of SOURCES) {
-            fetchProxyText(src.url, src.file, (err, text, fromCache) => {
-                if (err) {
-                    logProxy(`[!] Ошибка ${src.label}: ${err.message}`);
-                } else {
-                    const list = parseLinks(text, src.limit);
-                    let added = 0;
-                    for (const p of list) {
-                        const key = `${p.server}:${p.port}`;
-                        if (!seen.has(key)) { seen.add(key); proxies.push(p); added++; }
-                    }
-                    logProxy(`[+] ${src.label}: ${added} прокси${fromCache ? ' (кэш)' : ' (сеть)'}`);
+        try {
+            const loadedSources = await Promise.all(SOURCES.map(async (src) => {
+                try {
+                    return { src, ...(await loadProxySource(src)) };
+                } catch (error) {
+                    return { src, error };
                 }
-                onSourceDone();
-            });
+            }));
+
+            const seen = new Set();
+            const proxies = [];
+            for (const loaded of loadedSources) {
+                if (loaded.error) {
+                    logProxy(`[!] Ошибка ${loaded.src.label}: ${loaded.error.message}`);
+                    continue;
+                }
+                const list = parseLinks(loaded.text, loaded.src.limit);
+                let added = 0;
+                for (const proxy of list) {
+                    const key = `${proxy.server.toLowerCase()}:${proxy.port}`;
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        proxies.push(proxy);
+                        added++;
+                    }
+                }
+                if (loaded.networkError) {
+                    logProxy(`[!] ${loaded.src.label}: сеть недоступна (${loaded.networkError.message}), используем кэш`);
+                }
+                logProxy(`[+] ${loaded.src.label}: ${added} прокси (${loaded.fromCache ? 'кэш' : 'сеть'})`);
+            }
+
+            const candidates = proxies.slice(0, 250);
+            if (!candidates.length) throw new Error('не удалось получить ни одного корректного прокси');
+
+            logProxy(`[+] Уникальных: ${proxies.length}; тестируем первые ${candidates.length} (20 одновременно)...`);
+            statusEl.textContent = `Тестируем ${candidates.length} прокси...`;
+
+            const results = [];
+            let nextIndex = 0;
+            let completed = 0;
+            const worker = async () => {
+                while (true) {
+                    const index = nextIndex++;
+                    if (index >= candidates.length) return;
+                    const proxy = candidates[index];
+                    const result = await testProxyEndpoint(proxy.server, proxy.port, 4000);
+                    completed++;
+                    if (result.ping !== undefined) {
+                        results.push({ ...proxy, ping: result.ping });
+                        logProxy(`[+] ${proxy.server}:${proxy.port} — ${result.ping} мс`);
+                    }
+                    if (completed === candidates.length || completed % 10 === 0) {
+                        statusEl.textContent = `Тестируем... (${completed}/${candidates.length})`;
+                    }
+                }
+            };
+
+            await Promise.all(Array.from({ length: Math.min(20, candidates.length) }, () => worker()));
+            results.sort((a, b) => a.ping - b.ping);
+            const best = results[0];
+            if (!best) throw new Error('нет TCP-доступных прокси');
+
+            logProxy(`\n[★] Лучший: ${best.server}:${best.port} — ${best.ping} мс`);
+            document.getElementById('proxyServer').value = best.server;
+            document.getElementById('proxyPort').value   = best.port;
+            document.getElementById('proxySecret').value = best.secret;
+            document.getElementById('proxyType').value   = 'mtproto';
+            ProxyTypeChange();
+            ProxySave();
+            statusEl.style.color = '#c8ff00';
+            statusEl.textContent = `✔ TCP-доступен: ${best.server}:${best.port} — ${best.ping} мс. Нажмите «Применить»`;
+        } catch (error) {
+            statusEl.style.color = '#ff4444';
+            statusEl.textContent = `✘ ${error.message}`;
+            logProxy(`[!] ${error.message}`);
+        } finally {
+            finishSearch();
         }
     }
 </script>
@@ -1082,7 +1168,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 
 <div class="header">
     <div class="logo">ZAPRET ELECTRON</div>
-    <div class="version">v6.3</div>
+    <div class="version">v6.6</div>
 </div>
 
 <div class="mode-toggle">
