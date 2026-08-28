@@ -428,13 +428,7 @@ textarea:focus { border-color: #444; color: #aaa; }
     });
 
     ipcRenderer.on('do-autostart', () => {
-        if (localStorage.getItem('autoStartEngine') !== 'false') {
-            logMsg('[>>] Тихий запуск вместе с Windows. Активирую обход...');
-            StartEngine();
-            setTimeout(() => notifyUser(`Обход активен: ${getSelectedStrategyName()}`), 3500);
-        } else {
-            logMsg('[>>] Запуск вместе с Windows в трее. Автозапуск обхода отключён.');
-        }
+        logMsg('[>>] Запуск вместе с Windows в трее. Обход включается вручную.');
     });
 
     ipcRenderer.on('app-version', (_event, data) => {
@@ -454,7 +448,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 
         if (localStorage.getItem('autostart') === 'true')
             document.getElementById('autostartChk').checked = true;
-        document.getElementById('autoStartEngineChk').checked = localStorage.getItem('autoStartEngine') !== 'false';
+        localStorage.removeItem('autoStartEngine');
         document.getElementById('quietModeChk').checked = getQuietMode();
         RestoreDoH();
 
@@ -514,12 +508,6 @@ textarea:focus { border-color: #444; color: #aaa; }
             } catch(e) { logMsg('[!] Ошибка реестра: ' + e.message); }
         }
         sendTraySnapshot();
-    }
-
-    function ToggleAutoStartEngine() {
-        const enabled = document.getElementById('autoStartEngineChk').checked;
-        localStorage.setItem('autoStartEngine', String(enabled));
-        logMsg(enabled ? '[>>] Автоматический запуск обхода включён.' : '[>>] При входе в Windows приложение останется в трее.');
     }
 
     function ToggleQuietMode(forceValue) {
@@ -1591,10 +1579,6 @@ textarea:focus { border-color: #444; color: #aaa; }
     <label class="autostart-row">
         <input type="checkbox" id="autostartChk" onclick="ToggleAutostart()">
         <span class="autostart-label">Запускать вместе с Windows и сворачивать в трей</span>
-    </label>
-    <label class="autostart-row">
-        <input type="checkbox" id="autoStartEngineChk" onclick="ToggleAutoStartEngine()">
-        <span class="autostart-label">Автоматически включать обход при входе</span>
     </label>
     <label class="autostart-row">
         <input type="checkbox" id="quietModeChk" onclick="ToggleQuietMode()">
