@@ -159,6 +159,8 @@ select optgroup { background: #000; color: #444; font-size: 9px; letter-spacing:
     width: 13px; height: 13px;
 }
 .autostart-label { font-size: 11px; color: #484848; }
+.settings-stack { display: grid; gap: 6px; margin-bottom: 10px; }
+.settings-stack .autostart-row { margin-bottom: 0; }
 
 .btn-row { display: flex; gap: 8px; margin-bottom: 10px; }
 
@@ -253,6 +255,13 @@ textarea:focus { border-color: #444; color: #aaa; }
 .proxy-input::placeholder { color: #444; }
 .proxy-status { margin-top: 10px; font-size: 12px; color: #666; min-height: 16px; }
 .proxy-hint { margin-top: 8px; font-size: 11px; color: #555; line-height: 1.4; }
+.proxy-pool { margin-top: 10px; padding-top: 9px; border-top: 1px solid #1d1d1d; }
+.proxy-pool-title { font-size: 9px; color: #444; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; }
+.update-card { display: none; border-color: #303030; }
+.update-card.visible { display: block; }
+.update-status { color: #777; font-size: 11px; line-height: 1.5; white-space: pre-line; }
+.update-actions { display: flex; gap: 7px; margin-top: 8px; }
+.update-actions .btn { padding: 7px 8px; }
 </style>
 
 <script>
@@ -276,6 +285,11 @@ textarea:focus { border-color: #444; color: #aaa; }
     let watchdogRestarts = 0;
     let listRefreshInterval = null;
     let proxySearchRunning = false;
+    let proxyHealthInterval = null;
+    let currentTrayStatus = 'stopped';
+    let latestPingText = '---';
+    let latestUpdate = null;
+    let rollbackRelease = null;
 
     const strPath       = __dirname;
     const excludeFile   = path.join(strPath, 'lists', 'list-exclude.txt');
@@ -343,7 +357,40 @@ textarea:focus { border-color: #444; color: #aaa; }
         if (subtitle !== undefined) sub.textContent = subtitle;
     }
 
+    function getSelectedStrategyName() {
+        const sel = document.getElementById('stratSel');
+        return sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].text : '—';
+    }
+
+    function getQuietMode() {
+        return localStorage.getItem('quietMode') !== 'false';
+    }
+
+    function notifyUser(body) {
+        if (getQuietMode()) return;
+        try { new window.Notification('Zapret Electron', { body, silent: true }); } catch(e) {}
+    }
+
+    function sendTraySnapshot(imgBase64) {
+        const uptime = engineStartTime ? formatUptime(Date.now() - engineStartTime) : '00:00:00';
+        ipcRenderer.send('update-tray', {
+            imgBase64,
+            tooltip: currentTrayStatus === 'running'
+                ? `Zapret Electron: АКТИВЕН — ${getSelectedStrategyName()}`
+                : 'Zapret Electron: ОСТАНОВЛЕН',
+            state: {
+                running: currentTrayStatus === 'running',
+                strategy: currentTrayStatus === 'running' ? getSelectedStrategyName() : 'Движок не активен',
+                ping: latestPingText,
+                uptime,
+                autostart: localStorage.getItem('autostart') === 'true',
+                quietMode: getQuietMode()
+            }
+        });
+    }
+
     function setTrayStatus(status) {
+        currentTrayStatus = status;
         const canvas = document.createElement('canvas');
         canvas.width = canvas.height = 32;
         const ctx = canvas.getContext('2d');
@@ -354,10 +401,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         ctx.lineWidth   = 2;
         ctx.strokeStyle = '#000';
         ctx.stroke();
-        ipcRenderer.send('update-tray', {
-            imgBase64: canvas.toDataURL('image/png'),
-            tooltip:   (status === 'running') ? 'Zapret Electron: АКТИВЕН' : 'Zapret Electron: ОСТАНОВЛЕН'
-        });
+        sendTraySnapshot(canvas.toDataURL('image/png'));
     }
 
     function logMsg(text) {
@@ -369,20 +413,39 @@ textarea:focus { border-color: #444; color: #aaa; }
     ipcRenderer.on('hotkey-toggle', () => {
         StartEngine();
         const state = isRunning ? 'Обход активирован' : 'Обход остановлен';
-        new window.Notification('Zapret Electron', { body: state, silent: true });
+        notifyUser(state);
+    });
+
+    ipcRenderer.on('tray-action', (_event, message) => {
+        if (!message) return;
+        if (message.action === 'toggle-engine') StartEngine();
+        if (message.action === 'auto-detect') { SetMode('bypass'); AutoDetect(); }
+        if (message.action === 'show-telegram') SetMode('telegram');
+        if (message.action === 'update-lists') UpdateLists();
+        if (message.action === 'check-update') CheckAppUpdate(true);
+        if (message.action === 'set-autostart') ToggleAutostart(!!message.data);
+        if (message.action === 'set-quiet-mode') ToggleQuietMode(!!message.data);
     });
 
     ipcRenderer.on('do-autostart', () => {
-        logMsg('[>>] Автозапуск при старте Windows. Активирую обход...');
-        StartEngine();
-        setTimeout(() => {
-            const sel = document.getElementById('stratSel');
-            const name = sel.options[sel.selectedIndex].text;
-            new window.Notification('Zapret Electron', {
-                body: `Обход активен: ${name}`,
-                silent: true
-            });
-        }, 3500);
+        if (localStorage.getItem('autoStartEngine') !== 'false') {
+            logMsg('[>>] Тихий запуск вместе с Windows. Активирую обход...');
+            StartEngine();
+            setTimeout(() => notifyUser(`Обход активен: ${getSelectedStrategyName()}`), 3500);
+        } else {
+            logMsg('[>>] Запуск вместе с Windows в трее. Автозапуск обхода отключён.');
+        }
+    });
+
+    ipcRenderer.on('app-version', (_event, data) => {
+        const versionEl = document.getElementById('appVersion');
+        if (versionEl && data.version) versionEl.textContent = 'v' + data.version.replace(/\.0$/, '');
+        rollbackRelease = data.rollback || null;
+        const rollbackBtn = document.getElementById('rollbackBtn');
+        if (rollbackBtn) {
+            rollbackBtn.style.display = rollbackRelease ? '' : 'none';
+            if (rollbackRelease) rollbackBtn.textContent = `ОТКАТИТЬСЯ ДО v${rollbackRelease.version}`;
+        }
     });
 
     function Init() {
@@ -391,6 +454,9 @@ textarea:focus { border-color: #444; color: #aaa; }
 
         if (localStorage.getItem('autostart') === 'true')
             document.getElementById('autostartChk').checked = true;
+        document.getElementById('autoStartEngineChk').checked = localStorage.getItem('autoStartEngine') !== 'false';
+        document.getElementById('quietModeChk').checked = getQuietMode();
+        RestoreDoH();
 
         const fav = localStorage.getItem('favoriteStrategy');
         const savedStrat = fav || localStorage.getItem('savedStrategy');
@@ -409,6 +475,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         updateStatusUI('stopped', 'Движок не активен');
 
         ProxyLoad();
+        ProxyPoolLoad();
         SetMode(localStorage.getItem('appMode') || 'bypass');
 
         const backgroundListRefresh = async () => {
@@ -421,11 +488,18 @@ textarea:focus { border-color: #444; color: #aaa; }
         if (!listRefreshInterval) {
             listRefreshInterval = setInterval(backgroundListRefresh, 30 * 60 * 1000);
         }
+
+        setTimeout(() => CheckAppUpdate(false), 8000);
+        setTimeout(() => ProxyHealthCheck(false), 2 * 60 * 1000);
+        if (!proxyHealthInterval) {
+            proxyHealthInterval = setInterval(() => ProxyHealthCheck(false), 10 * 60 * 1000);
+        }
     }
 
-    function ToggleAutostart() {
+    function ToggleAutostart(forceValue) {
         const chk     = document.getElementById('autostartChk');
         const exePath = process.execPath;
+        if (typeof forceValue === 'boolean') chk.checked = forceValue;
         if (chk.checked) {
             try {
                 execSync(`reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "ZapretPro" /t REG_SZ /d "\\"${exePath}\\" --autostart" /f`, { windowsHide: true });
@@ -438,6 +512,57 @@ textarea:focus { border-color: #444; color: #aaa; }
                 localStorage.setItem('autostart', 'false');
                 logMsg('[>>] Автозагрузка удалена.');
             } catch(e) { logMsg('[!] Ошибка реестра: ' + e.message); }
+        }
+        sendTraySnapshot();
+    }
+
+    function ToggleAutoStartEngine() {
+        const enabled = document.getElementById('autoStartEngineChk').checked;
+        localStorage.setItem('autoStartEngine', String(enabled));
+        logMsg(enabled ? '[>>] Автоматический запуск обхода включён.' : '[>>] При входе в Windows приложение останется в трее.');
+    }
+
+    function ToggleQuietMode(forceValue) {
+        const chk = document.getElementById('quietModeChk');
+        if (typeof forceValue === 'boolean') chk.checked = forceValue;
+        localStorage.setItem('quietMode', String(chk.checked));
+        logMsg(chk.checked ? '[>>] Тихий режим включён.' : '[>>] Уведомления включены.');
+        sendTraySnapshot();
+    }
+
+    async function RestoreDoH() {
+        const chk = document.getElementById('dohChk');
+        try {
+            const status = await ipcRenderer.invoke('doh:get-status');
+            const wanted = localStorage.getItem('doh') === 'true';
+            chk.checked = wanted || status.enabled;
+            if (wanted && !status.enabled) await ToggleDoH(true);
+            if (status.lastError) logMsg('[DNS] ' + status.lastError);
+        } catch (error) {
+            chk.checked = false;
+            logMsg('[!] Не удалось получить состояние защищённого DNS: ' + error.message);
+        }
+    }
+
+    async function ToggleDoH(forceValue) {
+        const chk = document.getElementById('dohChk');
+        const enabled = typeof forceValue === 'boolean' ? forceValue : chk.checked;
+        chk.disabled = true;
+        try {
+            const result = await ipcRenderer.invoke('doh:set-enabled', enabled);
+            if (!result.ok) throw new Error(result.error || 'неизвестная ошибка');
+            chk.checked = !!result.status.enabled;
+            localStorage.setItem('doh', String(chk.checked));
+            logMsg(chk.checked
+                ? '[DNS] Защищённый DNS включён. Исходные настройки сохранены.'
+                : '[DNS] Защищённый DNS выключен. Исходные настройки восстановлены.');
+        } catch (error) {
+            const status = await ipcRenderer.invoke('doh:get-status').catch(() => ({ enabled: false }));
+            chk.checked = !!status.enabled;
+            localStorage.setItem('doh', String(chk.checked));
+            logMsg('[!] Ошибка защищённого DNS: ' + error.message);
+        } finally {
+            chk.disabled = false;
         }
     }
 
@@ -641,6 +766,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         document.getElementById('watchdogRow').style.display = 'block';
         timerInterval = setInterval(() => {
             document.getElementById('timerLine').textContent = formatUptime(Date.now() - engineStartTime);
+            if (Math.floor((Date.now() - engineStartTime) / 1000) % 10 === 0) sendTraySnapshot();
         }, 1000);
     }
 
@@ -661,27 +787,31 @@ textarea:focus { border-color: #444; color: #aaa; }
         document.getElementById('watchdogLine').textContent = watchdogRestarts + ' сбоев';
     }
 
-    function measureLatency(host) {
+    function measureLatency(url) {
         return new Promise(resolve => {
             const start = Date.now();
-            const socket = net.createConnection({ host, port: 443, timeout: 3000 });
             let done = false;
-            const finish = (ms) => { if (!done) { done = true; socket.destroy(); resolve(ms); } };
-            socket.on('connect', () => finish(Date.now() - start));
-            socket.on('error',   () => finish(null));
-            socket.on('timeout', () => finish(null));
+            const finish = (ms, req) => { if (!done) { done = true; if (req) req.destroy(); resolve(ms); } };
+            const req = https.get(url, { timeout: 4000, headers: { 'User-Agent': 'ZapretElectron/6.7' } }, (res) => {
+                res.resume();
+                finish(Date.now() - start, req);
+            });
+            req.on('error',   () => finish(null));
+            req.on('timeout', () => finish(null, req));
         });
     }
 
     async function updatePing() {
         if (!isRunning) return;
         const [yt, dc] = await Promise.all([
-            measureLatency('youtube.com'),
-            measureLatency('discord.com')
+            measureLatency('https://www.youtube.com/generate_204'),
+            measureLatency('https://discord.com/')
         ]);
         if (!isRunning) return;
         const fmt = ms => ms !== null ? `${ms}ms` : '---';
-        document.getElementById('pingLine').textContent = `YT:${fmt(yt)}  DC:${fmt(dc)}`;
+        latestPingText = `YT:${fmt(yt)} DC:${fmt(dc)}`;
+        document.getElementById('pingLine').textContent = latestPingText;
+        sendTraySnapshot();
     }
 
     function startPingMonitor() {
@@ -697,6 +827,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         if (row) { row.style.display = 'none'; }
         const line = document.getElementById('pingLine');
         if (line) line.textContent = '---';
+        latestPingText = '---';
     }
 
     function fetchText(url, redirects = 0) {
@@ -711,7 +842,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             const request = https.get(requestUrl, {
                 timeout: 12000,
                 headers: {
-                    'User-Agent': 'Zapret-Electron/6.6',
+                    'User-Agent': 'Zapret-Electron/6.7',
                     'Cache-Control': 'no-cache',
                     'Pragma': 'no-cache',
                     'Accept': 'text/plain,*/*;q=0.8'
@@ -842,10 +973,28 @@ textarea:focus { border-color: #444; color: #aaa; }
         document.getElementById('favBtn').textContent = (fav === val) ? '[★✓]' : '[★]';
     }
 
-    function QuickTest(host, resultId) {
+    function QuickTest(host, resultId, url = null) {
         const el = document.getElementById(resultId);
         el.textContent = '...';
         el.className = 'test-result';
+        if (url) {
+            const started = Date.now();
+            let done = false;
+            const finish = (ok, req) => {
+                if (done) return;
+                done = true;
+                if (req && !ok) req.destroy();
+                el.textContent = ok ? `✓ ОК ${Date.now() - started}мс` : '? нет ответа';
+                el.className = ok ? 'test-result ok' : 'test-result';
+            };
+            const req = https.get(url, { timeout: 5000, headers: { 'User-Agent': 'ZapretElectron/6.7' } }, (res) => {
+                res.resume();
+                finish(true, req);
+            });
+            req.on('error', () => finish(false, req));
+            req.on('timeout', () => finish(false, req));
+            return;
+        }
         const sock = new net.Socket();
         let done = false;
         sock.setTimeout(3000);
@@ -857,27 +1006,27 @@ textarea:focus { border-color: #444; color: #aaa; }
         });
         sock.on('error', () => {
             if (done) return; done = true;
-            el.textContent = '✗ блок';
-            el.className = 'test-result err';
+            el.textContent = '? нет ответа';
+            el.className = 'test-result';
         });
         sock.on('timeout', () => {
             if (done) return; done = true;
             sock.destroy();
-            el.textContent = '✗ таймаут';
-            el.className = 'test-result err';
+            el.textContent = '? таймаут';
+            el.className = 'test-result';
         });
     }
 
     function RunQuickTests() {
-        QuickTest('youtube.com',    'ytRes');
+        QuickTest('www.youtube.com','ytRes', 'https://www.youtube.com/generate_204');
         QuickTest('149.154.167.51', 'tgRes');
         QuickTest('91.108.56.130',  'tgRes2');
-        QuickTest('discord.com',    'dcRes');
+        QuickTest('discord.com',    'dcRes', 'https://discord.com/');
     }
 
     function CheckDNS() {
         const dns = require('dns');
-        const hosts = [['youtube.com','dnsYT'], ['discord.com','dnsDC'], ['t.me','dnsTG']];
+        const hosts = [['www.youtube.com','dnsYT'], ['discord.com','dnsDC'], ['t.me','dnsTG']];
         hosts.forEach(([host, id]) => {
             document.getElementById(id).textContent = '...';
             dns.lookup(host, (err, addr) => {
@@ -894,6 +1043,66 @@ textarea:focus { border-color: #444; color: #aaa; }
         fs.writeFileSync(desktopPath, report);
         alert('Отчет сохранён на рабочем столе!');
     }
+
+    function setUpdateCardVisible(visible) {
+        document.getElementById('updateCard').classList.toggle('visible', visible);
+    }
+
+    function CheckAppUpdate(manual) {
+        if (manual) setUpdateCardVisible(true);
+        ipcRenderer.send('check-for-updates', { manual: !!manual });
+    }
+
+    function InstallAppUpdate() {
+        if (!latestUpdate) return;
+        document.getElementById('installUpdateBtn').disabled = true;
+        ipcRenderer.send('install-update');
+    }
+
+    function RollbackAppUpdate() {
+        if (!rollbackRelease) return;
+        document.getElementById('rollbackBtn').disabled = true;
+        ipcRenderer.send('rollback-update');
+    }
+
+    ipcRenderer.on('update-status', (_event, data) => {
+        const card = document.getElementById('updateCard');
+        const status = document.getElementById('updateStatus');
+        const installBtn = document.getElementById('installUpdateBtn');
+        if (!card || !status) return;
+
+        if (data.state === 'checking') {
+            if (data.manual) setUpdateCardVisible(true);
+            status.textContent = 'Проверяем GitHub Releases...';
+            installBtn.style.display = 'none';
+        } else if (data.state === 'latest') {
+            if (data.manual) setUpdateCardVisible(true);
+            status.textContent = `Установлена актуальная версия v${data.currentVersion.replace(/\.0$/, '')}.`;
+            installBtn.style.display = 'none';
+        } else if (data.state === 'available') {
+            latestUpdate = data.update;
+            setUpdateCardVisible(true);
+            status.textContent = `Доступна v${data.update.version}. Установщик будет проверен по SHA-256 перед запуском.`;
+            installBtn.style.display = '';
+            installBtn.disabled = false;
+            installBtn.textContent = `УСТАНОВИТЬ v${data.update.version}`;
+            notifyUser(`Доступно обновление v${data.update.version}`);
+        } else if (data.state === 'preparing') {
+            setUpdateCardVisible(true);
+            status.textContent = data.purpose === 'rollback' ? 'Подготавливаем откат...' : 'Подготавливаем обновление...';
+        } else if (data.state === 'downloading') {
+            setUpdateCardVisible(true);
+            status.textContent = `Загрузка и проверка: ${data.percent === null ? '...' : data.percent + '%'}`;
+        } else if (data.state === 'verified') {
+            status.textContent = `SHA-256 подтверждён. Подпись Windows: ${data.signatureStatus}. Запускаем установщик...`;
+        } else if (data.state === 'error') {
+            if (data.manual || card.classList.contains('visible')) setUpdateCardVisible(true);
+            status.textContent = `Ошибка обновления: ${data.message}`;
+            installBtn.disabled = false;
+            const rollbackBtn = document.getElementById('rollbackBtn');
+            if (rollbackBtn) rollbackBtn.disabled = false;
+        }
+    });
 
     function SetMode(mode) {
         localStorage.setItem('appMode', mode);
@@ -928,6 +1137,123 @@ textarea:focus { border-color: #444; color: #aaa; }
         document.getElementById('proxyUser').value   = localStorage.getItem('proxyUser')   || '';
         document.getElementById('proxyPass').value   = localStorage.getItem('proxyPass')   || '';
         ProxyTypeChange();
+    }
+
+    function readProxyPool() {
+        try {
+            const pool = JSON.parse(localStorage.getItem('proxyPool') || '[]');
+            return Array.isArray(pool) ? pool.filter(p => p && p.server && p.port && p.secret) : [];
+        } catch(e) { return []; }
+    }
+
+    function ProxyPoolLoad() {
+        const select = document.getElementById('proxyPoolSelect');
+        if (!select) return;
+        const pool = readProxyPool();
+        select.innerHTML = '';
+        if (!pool.length) {
+            const option = document.createElement('option');
+            option.textContent = 'Резервы появятся после автопоиска';
+            option.value = '';
+            select.appendChild(option);
+            select.disabled = true;
+            return;
+        }
+        select.disabled = false;
+        pool.forEach((proxy, index) => {
+            const option = document.createElement('option');
+            option.value = String(index);
+            const latency = Number.isFinite(proxy.avgPing) ? `${proxy.avgPing} мс` : 'не проверен';
+            option.textContent = `${index + 1}. ${proxy.server}:${proxy.port} — ${latency}`;
+            select.appendChild(option);
+        });
+    }
+
+    function applyProxyFields(proxy, message) {
+        if (!proxy) return;
+        document.getElementById('proxyServer').value = proxy.server;
+        document.getElementById('proxyPort').value = proxy.port;
+        document.getElementById('proxySecret').value = proxy.secret;
+        document.getElementById('proxyType').value = 'mtproto';
+        ProxyTypeChange();
+        ProxySave();
+        if (message) logProxy(message);
+    }
+
+    function ProxyUseBackup() {
+        const select = document.getElementById('proxyPoolSelect');
+        const pool = readProxyPool();
+        const proxy = pool[parseInt(select.value, 10)];
+        if (!proxy) return;
+        applyProxyFields(proxy, `[>] Выбран резерв: ${proxy.server}:${proxy.port}`);
+        document.getElementById('proxyStatus').textContent = 'Резерв выбран. Нажмите «Применить в Telegram».';
+    }
+
+    async function verifyProxyReliability(proxy, extraAttempts = 2) {
+        const pings = Number.isFinite(proxy.ping) ? [proxy.ping] : [];
+        for (let i = 0; i < extraAttempts; i++) {
+            const result = await testProxyEndpoint(proxy.server, proxy.port, 4500);
+            if (result.ping !== undefined) pings.push(result.ping);
+            await new Promise(resolve => setTimeout(resolve, 120));
+        }
+        if (pings.length < 2) return null;
+        const avgPing = Math.round(pings.reduce((sum, value) => sum + value, 0) / pings.length);
+        const jitter = Math.max(...pings) - Math.min(...pings);
+        return {
+            ...proxy,
+            avgPing,
+            jitter,
+            checks: pings.length,
+            score: avgPing + jitter * 2 + (3 - pings.length) * 1000,
+            checkedAt: Date.now()
+        };
+    }
+
+    async function ProxyHealthCheck(manual) {
+        if (proxySearchRunning) return;
+        const status = document.getElementById('proxyStatus');
+        const current = {
+            server: document.getElementById('proxyServer').value.trim(),
+            port: parseInt(document.getElementById('proxyPort').value, 10),
+            secret: document.getElementById('proxySecret').value.trim()
+        };
+        if (!current.server || !current.port || !current.secret) return;
+        if (manual) {
+            status.style.color = '#666';
+            status.textContent = 'Проверяем активный прокси и резервы...';
+        }
+
+        const first = await testProxyEndpoint(current.server, current.port, 4500);
+        const second = first.ping === undefined
+            ? await testProxyEndpoint(current.server, current.port, 4500)
+            : first;
+        if (first.ping !== undefined || second.ping !== undefined) {
+            const ping = first.ping !== undefined ? first.ping : second.ping;
+            if (manual) {
+                status.style.color = '#c8ff00';
+                status.textContent = `✔ Активный прокси доступен — ${ping} мс`;
+            }
+            return;
+        }
+
+        logProxy(`[!] Активный прокси ${current.server}:${current.port} не отвечает. Проверяем резервы...`);
+        const pool = readProxyPool();
+        for (const proxy of pool) {
+            if (proxy.server === current.server && Number(proxy.port) === current.port) continue;
+            const result = await testProxyEndpoint(proxy.server, proxy.port, 4500);
+            if (result.ping !== undefined) {
+                applyProxyFields(proxy, `[★] Подготовлен рабочий резерв ${proxy.server}:${proxy.port} — ${result.ping} мс`);
+                status.style.color = '#c8ff00';
+                status.textContent = `✔ Активный прокси недоступен. Выбран резерв ${proxy.server}:${proxy.port}; примените его в Telegram.`;
+                notifyUser('Telegram-прокси перестал отвечать — подготовлен рабочий резерв');
+                return;
+            }
+        }
+
+        status.style.color = '#ff4444';
+        status.textContent = '✘ Активный прокси и сохранённые резервы не отвечают. Запущен поиск новых.';
+        notifyUser('Telegram-прокси недоступны — ищем новые');
+        await ProxyAutoFind(true);
     }
 
     function ProxyOpen() {
@@ -1012,7 +1338,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         if (el) { el.value += msg + '\n'; el.scrollTop = el.scrollHeight; }
     }
 
-    async function ProxyAutoFind() {
+    async function ProxyAutoFind(background = false) {
         if (proxySearchRunning) return;
         proxySearchRunning = true;
 
@@ -1023,7 +1349,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         statusEl.style.color = '#666';
         statusEl.textContent = 'Загружаем списки прокси...';
         const proxyLog = document.getElementById('proxyLog');
-        if (proxyLog) proxyLog.value = '';
+        if (proxyLog && !background) proxyLog.value = '';
 
         const BASE = 'https://raw.githubusercontent.com/kort0881/telegram-proxy-collector/refs/heads/main/';
         const SOURCES = [
@@ -1142,18 +1468,25 @@ textarea:focus { border-color: #444; color: #aaa; }
 
             await Promise.all(Array.from({ length: Math.min(20, candidates.length) }, () => worker()));
             results.sort((a, b) => a.ping - b.ping);
-            const best = results[0];
-            if (!best) throw new Error('нет TCP-доступных прокси');
+            if (!results.length) throw new Error('нет TCP-доступных прокси');
 
-            logProxy(`\n[★] Лучший: ${best.server}:${best.port} — ${best.ping} мс`);
-            document.getElementById('proxyServer').value = best.server;
-            document.getElementById('proxyPort').value   = best.port;
-            document.getElementById('proxySecret').value = best.secret;
-            document.getElementById('proxyType').value   = 'mtproto';
-            ProxyTypeChange();
-            ProxySave();
+            const finalists = results.slice(0, 20);
+            statusEl.textContent = `Повторно проверяем ${finalists.length} лучших...`;
+            logProxy(`\n[>>] Проверка стабильности ${finalists.length} финалистов (3 подключения)...`);
+            const verified = (await Promise.all(finalists.map(proxy => verifyProxyReliability(proxy, 2))))
+                .filter(Boolean)
+                .sort((a, b) => a.score - b.score);
+            if (!verified.length) throw new Error('прокси не прошли повторную проверку стабильности');
+
+            const pool = verified.slice(0, 5);
+            localStorage.setItem('proxyPool', JSON.stringify(pool));
+            ProxyPoolLoad();
+            const best = pool[0];
+            logProxy(`\n[★] Лучший: ${best.server}:${best.port} — среднее ${best.avgPing} мс, разброс ${best.jitter} мс, ${best.checks}/3 проверок`);
+            logProxy(`[+] Сохранено резервов: ${pool.length}`);
+            applyProxyFields(best);
             statusEl.style.color = '#c8ff00';
-            statusEl.textContent = `✔ TCP-доступен: ${best.server}:${best.port} — ${best.ping} мс. Нажмите «Применить»`;
+            statusEl.textContent = `✔ Стабилен: ${best.server}:${best.port} — ${best.avgPing} мс. Резервов: ${pool.length}. Нажмите «Применить»`;
         } catch (error) {
             statusEl.style.color = '#ff4444';
             statusEl.textContent = `✘ ${error.message}`;
@@ -1168,12 +1501,22 @@ textarea:focus { border-color: #444; color: #aaa; }
 
 <div class="header">
     <div class="logo">ZAPRET ELECTRON</div>
-    <div class="version">v6.6</div>
+    <div id="appVersion" class="version">v6.7</div>
 </div>
 
 <div class="mode-toggle">
     <button id="modeBtnBypass" class="mode-btn active" onclick="SetMode('bypass')">◼ ОБХОД</button>
     <button id="modeBtnTelegram" class="mode-btn" onclick="SetMode('telegram')">◻ TELEGRAM</button>
+</div>
+
+<div id="updateCard" class="card update-card">
+    <div class="card-title">Обновление приложения</div>
+    <div id="updateStatus" class="update-status">Проверка ещё не выполнялась.</div>
+    <div class="update-actions">
+        <button class="btn btn-ghost" onclick="CheckAppUpdate(true)">ПРОВЕРИТЬ</button>
+        <button id="installUpdateBtn" class="btn btn-primary" style="display:none" onclick="InstallAppUpdate()">УСТАНОВИТЬ</button>
+        <button id="rollbackBtn" class="btn btn-ghost" style="display:none" onclick="RollbackAppUpdate()">ОТКАТИТЬСЯ</button>
+    </div>
 </div>
 
 <div id="modeBypass">
@@ -1223,13 +1566,13 @@ textarea:focus { border-color: #444; color: #aaa; }
         <button class="btn btn-ghost btn-icon" onclick="RunQuickTests()">[↻]</button>
     </div>
     <div class="quick-test-row">
-        <button class="btn btn-ghost" onclick="QuickTest('youtube.com','ytRes')">YT</button>
+        <button class="btn btn-ghost" onclick="QuickTest('www.youtube.com','ytRes','https://www.youtube.com/generate_204')">YT</button>
         <span id="ytRes" class="test-result">—</span>
         <button class="btn btn-ghost" onclick="QuickTest('149.154.167.51','tgRes')">TG-DC1</button>
         <span id="tgRes" class="test-result">—</span>
         <button class="btn btn-ghost" onclick="QuickTest('91.108.56.130','tgRes2')">TG-DC2</button>
         <span id="tgRes2" class="test-result">—</span>
-        <button class="btn btn-ghost" onclick="QuickTest('discord.com','dcRes')">DC</button>
+        <button class="btn btn-ghost" onclick="QuickTest('discord.com','dcRes','https://discord.com/')">DC</button>
         <span id="dcRes" class="test-result">—</span>
     </div>
 </div>
@@ -1239,15 +1582,29 @@ textarea:focus { border-color: #444; color: #aaa; }
         <div class="card-title" style="margin-bottom:0">DNS-статус</div>
         <button class="btn btn-ghost btn-icon" onclick="CheckDNS()">[↻]</button>
     </div>
-    <div class="dns-row">youtube.com <span id="dnsYT">—</span></div>
+    <div class="dns-row">www.youtube.com <span id="dnsYT">—</span></div>
     <div class="dns-row">discord.com <span id="dnsDC">—</span></div>
     <div class="dns-row">t.me        <span id="dnsTG">—</span></div>
 </div>
 
-<label class="autostart-row">
-    <input type="checkbox" id="autostartChk" onclick="ToggleAutostart()">
-    <span class="autostart-label">Запускать при старте Windows</span>
-</label>
+<div class="settings-stack">
+    <label class="autostart-row">
+        <input type="checkbox" id="autostartChk" onclick="ToggleAutostart()">
+        <span class="autostart-label">Запускать вместе с Windows и сворачивать в трей</span>
+    </label>
+    <label class="autostart-row">
+        <input type="checkbox" id="autoStartEngineChk" onclick="ToggleAutoStartEngine()">
+        <span class="autostart-label">Автоматически включать обход при входе</span>
+    </label>
+    <label class="autostart-row">
+        <input type="checkbox" id="quietModeChk" onclick="ToggleQuietMode()">
+        <span class="autostart-label">Тихий режим — без фоновых уведомлений</span>
+    </label>
+    <label class="autostart-row">
+        <input type="checkbox" id="dohChk" onclick="ToggleDoH()">
+        <span class="autostart-label">Защищённый DNS — вручную, с восстановлением при выходе</span>
+    </label>
+</div>
 
 <div class="btn-row">
     <button id="mBtn" class="btn btn-primary" onclick="StartEngine()">▶ ЗАПУСТИТЬ</button>
@@ -1318,6 +1675,13 @@ textarea:focus { border-color: #444; color: #aaa; }
     </div>
     <div class="proxy-status" id="proxyStatus"></div>
     <div class="proxy-hint">Нажмите «Применить» — Telegram откроется с уже заполненными данными прокси.</div>
+    <div class="proxy-pool">
+        <div class="proxy-pool-title">Проверенные резервы</div>
+        <div class="proxy-row">
+            <select id="proxyPoolSelect" class="proxy-input"></select>
+            <button class="btn btn-ghost btn-icon" onclick="ProxyUseBackup()">ВЫБРАТЬ</button>
+        </div>
+    </div>
 </div>
 
 <div class="btn-row">
@@ -1326,6 +1690,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 </div>
 <div class="btn-row" style="margin-top:6px">
     <button class="btn btn-primary" onclick="ProxyOpen()">▶ ПРИМЕНИТЬ В TELEGRAM</button>
+    <button class="btn btn-ghost" onclick="ProxyHealthCheck(true)">ПРОВЕРИТЬ РЕЗЕРВ</button>
 </div>
 
 <div class="log-title">Журнал</div>

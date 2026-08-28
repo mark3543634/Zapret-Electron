@@ -5,8 +5,8 @@ const exePath = path.join(__dirname, 'out', 'ZapretPro-win32-x64', 'Zapret Elect
 
 rcedit(exePath, {
   'requested-execution-level': 'requireAdministrator',
-  'file-version': '6.6.0',
-  'product-version': '6.6.0',
+  'file-version': '6.7.0',
+  'product-version': '6.7.0',
   'version-string': {
     ProductName: 'Zapret Electron',
     FileDescription: 'GUI для обхода DPI-блокировок и подключения Telegram через актуальные прокси',
