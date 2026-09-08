@@ -21,7 +21,9 @@ let trayState = {
 let availableUpdate = null;
 let dohSocket = null;
 let dohEnabled = false;
+let dohProfile = null;
 let dohExitBlocked = false;
+let dnsWatchdogStarted = false;
 let dohStats = { queries: 0, replies: 0, lastError: '', lastEndpoint: '' };
 
 const DOH_ENDPOINTS = [
@@ -29,11 +31,17 @@ const DOH_ENDPOINTS = [
   { host: '1.0.0.1', servername: 'cloudflare-dns.com', label: 'Cloudflare 2' },
   { host: '8.8.8.8', servername: 'dns.google', label: 'Google' }
 ];
+const DNS_PROFILES = {
+  secure: { addresses: ['127.0.0.1'], localProxy: true },
+  smartAi: { addresses: ['83.220.169.155', '212.109.195.93'], localProxy: false }
+};
 
 const UPDATE_REPOSITORY = 'mark3543634/Zapret-Electron';
 const UPDATE_API = `https://api.github.com/repos/${UPDATE_REPOSITORY}`;
 const updaterStatePath = () => path.join(app.getPath('userData'), 'updater-state.json');
 const dohStatePath = () => path.join(app.getPath('userData'), 'doh-state.json');
+const dnsWatchdogPath = () => path.join(app.getPath('userData'), 'dns-recovery-watchdog.ps1');
+const dnsRecoveryLogPath = () => path.join(app.getPath('userData'), 'dns-recovery.log');
 function runPowerShell(command) {
   const result = spawnSync('powershell', [
     '-NoProfile', '-NonInteractive', '-Command',
@@ -54,21 +62,24 @@ function writeDohState(state) {
 }
 
 function captureActiveDns() {
-  const output = runPowerShell("Get-NetAdapter -Physical | Where-Object Status -eq 'Up' | ForEach-Object { $dns=Get-DnsClientServerAddress -InterfaceIndex $_.ifIndex -AddressFamily IPv4; [pscustomobject]@{ InterfaceIndex=[int]$_.ifIndex; InterfaceAlias=[string]$_.Name; ServerAddresses=@($dns.ServerAddresses) } } | ConvertTo-Json -Compress");
+  const output = runPowerShell("Get-NetAdapter -Physical | Where-Object Status -eq 'Up' | ForEach-Object { $dns=Get-DnsClientServerAddress -InterfaceIndex $_.ifIndex -AddressFamily IPv4; $guid='{' + $_.InterfaceGuid.ToString() + '}'; $reg=Get-ItemProperty -LiteralPath ('HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\' + $guid) -ErrorAction SilentlyContinue; [pscustomobject]@{ InterfaceIndex=[int]$_.ifIndex; InterfaceAlias=[string]$_.Name; ServerAddresses=@($dns.ServerAddresses); Automatic=[string]::IsNullOrWhiteSpace([string]$reg.NameServer) } } | ConvertTo-Json -Compress");
   if (!output) return [];
   const parsed = JSON.parse(output);
   return (Array.isArray(parsed) ? parsed : [parsed]).map((item) => ({
     interfaceIndex: Number(item.InterfaceIndex),
     interfaceAlias: String(item.InterfaceAlias || ''),
+    automatic: item.Automatic === true,
     serverAddresses: (Array.isArray(item.ServerAddresses) ? item.ServerAddresses : (item.ServerAddresses ? [item.ServerAddresses] : []))
       .map(String).filter((value) => /^\d{1,3}(\.\d{1,3}){3}$/.test(value))
   })).filter((item) => Number.isInteger(item.interfaceIndex) && item.interfaceIndex > 0);
 }
 
-function setDnsToLocal(adapters) {
+function setAdapterDns(adapters, addresses) {
+  const quoted = addresses.map((value) => `'${value}'`).join(',');
   for (const adapter of adapters) {
-    runPowerShell(`Set-DnsClientServerAddress -InterfaceIndex ${adapter.interfaceIndex} -ServerAddresses ('127.0.0.1') -ErrorAction Stop`);
+    runPowerShell(`Set-DnsClientServerAddress -InterfaceIndex ${adapter.interfaceIndex} -ServerAddresses @(${quoted}) -ErrorAction Stop`);
   }
+  runPowerShell('Clear-DnsClientCache');
 }
 
 function restoreDnsFromState(state) {
@@ -76,11 +87,17 @@ function restoreDnsFromState(state) {
   const errors = [];
   for (const adapter of state.adapters) {
     try {
-      const index = Number(adapter.interfaceIndex);
+      let index = Number(adapter.interfaceIndex);
       if (!Number.isInteger(index) || index <= 0) continue;
+      const alias = String(adapter.interfaceAlias || '').replace(/'/g, "''");
+      const resolved = runPowerShell(`$candidate=Get-NetAdapter -InterfaceIndex ${index} -ErrorAction SilentlyContinue; if(-not $candidate -and '${alias}'){$candidate=Get-NetAdapter -Name '${alias}' -ErrorAction SilentlyContinue}; if($candidate){[int]$candidate.ifIndex}`);
+      if (resolved) index = Number(resolved);
+      if (!Number.isInteger(index) || index <= 0) throw new Error(`сетевой адаптер ${adapter.interfaceAlias || adapter.interfaceIndex} не найден`);
       const addresses = (Array.isArray(adapter.serverAddresses) ? adapter.serverAddresses : [])
         .map(String).filter((value) => /^\d{1,3}(\.\d{1,3}){3}$/.test(value));
-      if (addresses.length) {
+      if (adapter.automatic === true) {
+        runPowerShell(`Set-DnsClientServerAddress -InterfaceIndex ${index} -ResetServerAddresses -ErrorAction Stop`);
+      } else if (addresses.length) {
         const quoted = addresses.map((value) => `'${value}'`).join(',');
         runPowerShell(`Set-DnsClientServerAddress -InterfaceIndex ${index} -ServerAddresses @(${quoted}) -ErrorAction Stop`);
       } else {
@@ -89,7 +106,52 @@ function restoreDnsFromState(state) {
     } catch (error) { errors.push(error.message); }
   }
   if (errors.length) throw new Error(errors.join('; '));
+  try { runPowerShell('Clear-DnsClientCache'); } catch (_) {}
   return true;
+}
+
+function writeDnsWatchdogScript() {
+  const script = [
+    "param([int]$ParentPid, [string]$StatePath, [string]$LogPath)",
+    "$ErrorActionPreference = 'Stop'",
+    "Wait-Process -Id $ParentPid -ErrorAction SilentlyContinue",
+    "if (-not (Test-Path -LiteralPath $StatePath)) { exit 0 }",
+    "$ok = $true",
+    "try {",
+    "  $state = Get-Content -LiteralPath $StatePath -Raw -Encoding UTF8 | ConvertFrom-Json",
+    "  foreach ($adapter in @($state.adapters)) {",
+    "    try {",
+    "      $index = [int]$adapter.interfaceIndex",
+    "      $candidate = Get-NetAdapter -InterfaceIndex $index -ErrorAction SilentlyContinue",
+    "      if (-not $candidate -and $adapter.interfaceAlias) { $candidate = Get-NetAdapter -Name ([string]$adapter.interfaceAlias) -ErrorAction SilentlyContinue }",
+    "      if (-not $candidate) { throw 'Network adapter not found.' }",
+    "      $index = [int]$candidate.ifIndex",
+    "      $addresses = @($adapter.serverAddresses | Where-Object { $_ -match '^\\d{1,3}(\\.\\d{1,3}){3}$' })",
+    "      if ($adapter.automatic -eq $true) {",
+    "        Set-DnsClientServerAddress -InterfaceIndex $index -ResetServerAddresses -ErrorAction Stop",
+    "      } elseif ($addresses.Count -gt 0) {",
+    "        Set-DnsClientServerAddress -InterfaceIndex $index -ServerAddresses $addresses -ErrorAction Stop",
+    "      } else {",
+    "        Set-DnsClientServerAddress -InterfaceIndex $index -ResetServerAddresses -ErrorAction Stop",
+    "      }",
+    "    } catch { $ok = $false; Add-Content -LiteralPath $LogPath -Value ((Get-Date -Format o) + ' ' + $_.Exception.Message) -Encoding UTF8 }",
+    "  }",
+    "  if ($ok) { Clear-DnsClientCache; Remove-Item -LiteralPath $StatePath -Force }",
+    "} catch { Add-Content -LiteralPath $LogPath -Value ((Get-Date -Format o) + ' ' + $_.Exception.Message) -Encoding UTF8; exit 1 }"
+  ].join('\r\n');
+  fs.writeFileSync(dnsWatchdogPath(), script, 'utf8');
+}
+
+function startDnsRecoveryWatchdog() {
+  if (dnsWatchdogStarted) return;
+  writeDnsWatchdogScript();
+  const child = spawn('powershell', [
+    '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
+    '-File', dnsWatchdogPath(), '-ParentPid', String(process.pid),
+    '-StatePath', dohStatePath(), '-LogPath', dnsRecoveryLogPath()
+  ], { detached: true, windowsHide: true, stdio: 'ignore' });
+  child.unref();
+  dnsWatchdogStarted = true;
 }
 
 function makeServfail(query) {
@@ -211,31 +273,67 @@ function testDohProxy() {
   });
 }
 
+function testUdpDnsServer(address, timeoutMs = 2500) {
+  return new Promise((resolve, reject) => {
+    const client = dgram.createSocket('udp4');
+    const { id, packet } = buildDohProbe();
+    let done = false;
+    const finish = (error) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { client.close(); } catch (_) {}
+      error ? reject(error) : resolve();
+    };
+    const timer = setTimeout(() => finish(new Error(`${address} не отвечает`)), timeoutMs);
+    client.on('message', (answer) => {
+      if (answer.length >= 12 && answer.readUInt16BE(0) === id && (answer[2] & 0x80)) finish();
+    });
+    client.on('error', finish);
+    client.send(packet, 53, address, (error) => { if (error) finish(error); });
+  });
+}
+
+async function testSmartDns(addresses) {
+  const errors = [];
+  for (const address of addresses) {
+    try { await testUdpDnsServer(address); return; }
+    catch (error) { errors.push(error.message); }
+  }
+  throw new Error(`Smart DNS недоступен: ${errors.join('; ')}`);
+}
+
 function stopDohProxy() {
   const socket = dohSocket;
   dohSocket = null;
   if (socket) { try { socket.close(); } catch (_) {} }
 }
 
-async function enableDoh() {
-  if (dohEnabled && dohSocket) return getDohStatus();
-  await startDohProxy();
-  try {
-    await testDohProxy();
-  } catch (error) {
-    stopDohProxy();
-    throw error;
+async function enableDoh(profileName = 'secure') {
+  const profile = DNS_PROFILES[profileName];
+  if (!profile) throw new Error('неизвестный DNS-профиль');
+  if (dohEnabled && dohProfile === profileName && (!profile.localProxy || dohSocket)) return getDohStatus();
+  if (dohEnabled || readDohState()) disableDoh();
+
+  if (profile.localProxy) {
+    await startDohProxy();
+    try { await testDohProxy(); }
+    catch (error) { stopDohProxy(); throw error; }
+  } else {
+    await testSmartDns(profile.addresses);
   }
   const adapters = captureActiveDns();
   if (!adapters.length) {
     stopDohProxy();
     throw new Error('не найден активный физический сетевой адаптер');
   }
-  const state = { active: true, createdAt: new Date().toISOString(), adapters };
+  const state = { active: true, profile: profileName, createdAt: new Date().toISOString(), ownerPid: process.pid, adapters };
   writeDohState(state);
+  startDnsRecoveryWatchdog();
   try {
-    setDnsToLocal(adapters);
+    setAdapterDns(adapters, profile.addresses);
     dohEnabled = true;
+    dohProfile = profileName;
     return getDohStatus();
   } catch (error) {
     try { restoreDnsFromState(state); } catch (_) {}
@@ -250,12 +348,13 @@ function disableDoh() {
   restoreDnsFromState(state);
   try { if (fs.existsSync(dohStatePath())) fs.unlinkSync(dohStatePath()); } catch (_) {}
   dohEnabled = false;
+  dohProfile = null;
   stopDohProxy();
   return getDohStatus();
 }
 
 function getDohStatus() {
-  return { enabled: dohEnabled, proxyRunning: !!dohSocket, ...dohStats };
+  return { enabled: dohEnabled, profile: dohProfile, proxyRunning: !!dohSocket, ...dohStats };
 }
 
 async function recoverDohState() {
@@ -266,9 +365,27 @@ async function recoverDohState() {
     fs.unlinkSync(dohStatePath());
   } catch (error) {
     // Если восстановление не удалось, сохраняем DNS рабочим до ручного исправления.
-    await startDohProxy();
+    if (!state.profile || state.profile === 'secure') await startDohProxy();
     dohEnabled = true;
+    dohProfile = state.profile || 'secure';
+    startDnsRecoveryWatchdog();
     dohStats.lastError = `Не удалось восстановить DNS: ${error.message}`;
+  }
+}
+
+function emergencyRestoreDns() {
+  const state = readDohState();
+  if (!state || !state.active) return true;
+  try {
+    restoreDnsFromState(state);
+    if (fs.existsSync(dohStatePath())) fs.unlinkSync(dohStatePath());
+    dohEnabled = false;
+    dohProfile = null;
+    stopDohProxy();
+    return true;
+  } catch (error) {
+    dohStats.lastError = `Аварийное восстановление DNS: ${error.message}`;
+    return false;
   }
 }
 
@@ -628,6 +745,10 @@ function createWindow () {
       mainWindow.hide();      
     }
   });
+
+  mainWindow.on('session-end', () => {
+    emergencyRestoreDns();
+  });
 }
 
 app.whenReady().then(async () => {
@@ -699,9 +820,11 @@ ipcMain.on('rollback-update', async () => {
 });
 
 ipcMain.handle('doh:get-status', () => getDohStatus());
-ipcMain.handle('doh:set-enabled', async (_event, enabled) => {
+ipcMain.handle('doh:set-enabled', async (_event, request) => {
   try {
-    const status = enabled ? await enableDoh() : disableDoh();
+    const enabled = typeof request === 'object' ? !!request.enabled : !!request;
+    const profile = typeof request === 'object' ? request.profile : 'secure';
+    const status = enabled ? await enableDoh(profile) : disableDoh();
     return { ok: true, status };
   } catch (error) {
     return { ok: false, error: error.message, status: getDohStatus() };
@@ -731,6 +854,14 @@ app.on('before-quit', (event) => {
   if (tray) {
       tray.destroy();
   }
+});
+
+app.on('will-quit', () => {
+  emergencyRestoreDns();
+});
+
+process.on('exit', () => {
+  emergencyRestoreDns();
 });
 
 app.on('window-all-closed', () => {

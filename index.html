@@ -449,6 +449,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         if (localStorage.getItem('autostart') === 'true')
             document.getElementById('autostartChk').checked = true;
         localStorage.removeItem('autoStartEngine');
+        localStorage.removeItem('doh');
         document.getElementById('quietModeChk').checked = getQuietMode();
         RestoreDoH();
 
@@ -520,11 +521,14 @@ textarea:focus { border-color: #444; color: #aaa; }
 
     async function RestoreDoH() {
         const chk = document.getElementById('dohChk');
+        const profileSel = document.getElementById('dnsProfileSel');
         try {
             const status = await ipcRenderer.invoke('doh:get-status');
-            const wanted = localStorage.getItem('doh') === 'true';
-            chk.checked = wanted || status.enabled;
-            if (wanted && !status.enabled) await ToggleDoH(true);
+            const savedProfile = localStorage.getItem('dnsProfile') || 'secure';
+            profileSel.value = status.profile || savedProfile;
+            localStorage.setItem('dnsProfile', profileSel.value);
+            UpdateDnsProfileHint();
+            chk.checked = !!status.enabled;
             if (status.lastError) logMsg('[DNS] ' + status.lastError);
         } catch (error) {
             chk.checked = false;
@@ -534,24 +538,42 @@ textarea:focus { border-color: #444; color: #aaa; }
 
     async function ToggleDoH(forceValue) {
         const chk = document.getElementById('dohChk');
+        const profileSel = document.getElementById('dnsProfileSel');
         const enabled = typeof forceValue === 'boolean' ? forceValue : chk.checked;
         chk.disabled = true;
+        profileSel.disabled = true;
         try {
-            const result = await ipcRenderer.invoke('doh:set-enabled', enabled);
+            const profile = profileSel.value || 'secure';
+            const result = await ipcRenderer.invoke('doh:set-enabled', { enabled, profile });
             if (!result.ok) throw new Error(result.error || 'неизвестная ошибка');
             chk.checked = !!result.status.enabled;
-            localStorage.setItem('doh', String(chk.checked));
+            localStorage.setItem('dnsProfile', profile);
             logMsg(chk.checked
-                ? '[DNS] Защищённый DNS включён. Исходные настройки сохранены.'
-                : '[DNS] Защищённый DNS выключен. Исходные настройки восстановлены.');
+                ? `[DNS] Профиль «${profileSel.selectedOptions[0].text}» включён. Исходные настройки сохранены.`
+                : '[DNS] DNS-профиль выключен. Исходные настройки восстановлены.');
         } catch (error) {
             const status = await ipcRenderer.invoke('doh:get-status').catch(() => ({ enabled: false }));
             chk.checked = !!status.enabled;
-            localStorage.setItem('doh', String(chk.checked));
             logMsg('[!] Ошибка защищённого DNS: ' + error.message);
         } finally {
             chk.disabled = false;
+            profileSel.disabled = false;
         }
+    }
+
+    function ChangeDnsProfile() {
+        const profile = document.getElementById('dnsProfileSel').value;
+        localStorage.setItem('dnsProfile', profile);
+        UpdateDnsProfileHint();
+        if (document.getElementById('dohChk').checked) ToggleDoH(true);
+    }
+
+    function UpdateDnsProfileHint() {
+        const profile = document.getElementById('dnsProfileSel').value;
+        const hint = document.getElementById('dnsProfileHint');
+        hint.textContent = profile === 'smartAi'
+            ? 'Comss.one: точечный доступ к поддерживаемым ИИ-сервисам. Это сторонний DNS, а не VPN.'
+            : 'Шифрует DNS-запросы через Cloudflare/Google, но сам по себе не меняет регион.';
     }
 
     function SaveStrategyChoice() {
@@ -1584,10 +1606,17 @@ textarea:focus { border-color: #444; color: #aaa; }
         <input type="checkbox" id="quietModeChk" onclick="ToggleQuietMode()">
         <span class="autostart-label">Тихий режим — без фоновых уведомлений</span>
     </label>
+    <div class="select-wrap">
+        <select id="dnsProfileSel" onchange="ChangeDnsProfile()">
+            <option value="secure">Защищённый DNS — Cloudflare / Google</option>
+            <option value="smartAi">Smart DNS для нейросетей — Comss.one</option>
+        </select>
+    </div>
     <label class="autostart-row">
         <input type="checkbox" id="dohChk" onclick="ToggleDoH()">
-        <span class="autostart-label">Защищённый DNS — вручную, с восстановлением при выходе</span>
+        <span class="autostart-label">Включить выбранный DNS-профиль</span>
     </label>
+    <div id="dnsProfileHint" class="proxy-hint"></div>
 </div>
 
 <div class="btn-row">
