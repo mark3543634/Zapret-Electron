@@ -242,10 +242,43 @@ textarea:focus { border-color: #444; color: #aaa; }
 .dns-row span { color: #666; }
 
 /* Mode toggle */
-.mode-toggle { display: flex; gap: 8px; margin: 10px 0 6px 0; }
-.mode-btn { flex: 1; padding: 8px 0; font-size: 13px; font-family: inherit; background: #111; color: #555; border: 1px solid #333; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: all 0.15s; }
+.mode-toggle { display: flex; gap: 7px; margin: 10px 0 10px 0; }
+.mode-btn { flex: 1; padding: 8px 4px; font-size: 11px; font-family: inherit; background: #111; color: #555; border: 1px solid #333; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: all 0.15s; }
 .mode-btn:hover { border-color: #555; color: #888; }
 .mode-btn.active { background: #1a1a1a; color: #c8ff00; border-color: #c8ff00; }
+
+/* DNS workspace */
+.dns-hero { border-color: #292929; }
+.dns-hero.active { border-color: #c8ff00; }
+.dns-hero .status-dot.active::before { content: '[◆]'; color: #c8ff00; animation: none; }
+.dns-profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.dns-profile-card {
+    min-height: 106px;
+    padding: 11px;
+    text-align: left;
+    background: #050505;
+    border: 1px solid #222;
+    color: #777;
+    font-family: inherit;
+    cursor: pointer;
+}
+.dns-profile-card:hover { border-color: #555; }
+.dns-profile-card.selected { border-color: #c8ff00; color: #bbb; background: #0b0d08; }
+.dns-profile-name { display: block; color: #ddd; font-size: 11px; font-weight: bold; letter-spacing: 1px; margin-bottom: 7px; }
+.dns-profile-card.selected .dns-profile-name::before { content: '● '; color: #c8ff00; }
+.dns-profile-card:not(.selected) .dns-profile-name::before { content: '○ '; color: #444; }
+.dns-profile-copy { display: block; font-size: 10px; line-height: 1.5; color: #555; }
+.dns-profile-meta { display: block; margin-top: 7px; font-size: 9px; letter-spacing: 1px; color: #3d3d3d; text-transform: uppercase; }
+.dns-master-row { padding: 11px 12px; border-color: #303030; }
+.dns-master-row.enabled { border-color: #c8ff00; background: #0b0d08; }
+.dns-master-row.enabled .autostart-label { color: #ddd; }
+.dns-actions { display: flex; gap: 8px; margin: 10px 0; }
+.dns-compat { border-left: 2px solid #3a3a3a; padding: 9px 11px; margin-bottom: 10px; background: #050505; }
+.dns-compat.good { border-left-color: #c8ff00; }
+.dns-compat.caution { border-left-color: #a58a36; }
+.dns-compat-title { font-size: 10px; color: #aaa; letter-spacing: 1px; text-transform: uppercase; }
+.dns-compat-copy { margin-top: 4px; color: #555; font-size: 10px; line-height: 1.5; }
+.dns-disclaimer { color: #414141; font-size: 10px; line-height: 1.55; margin-top: 7px; }
 
 /* Telegram proxy card */
 .proxy-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
@@ -290,6 +323,7 @@ textarea:focus { border-color: #444; color: #aaa; }
     let latestPingText = '---';
     let latestUpdate = null;
     let rollbackRelease = null;
+    let dnsRuntimeStatus = { enabled: false, profile: null };
 
     const strPath       = __dirname;
     const excludeFile   = path.join(strPath, 'lists', 'list-exclude.txt');
@@ -355,6 +389,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             document.title    = '[OFF] Zapret Electron';
         }
         if (subtitle !== undefined) sub.textContent = subtitle;
+        UpdateDnsStatusUI();
     }
 
     function getSelectedStrategyName() {
@@ -421,6 +456,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         if (message.action === 'toggle-engine') StartEngine();
         if (message.action === 'auto-detect') { SetMode('bypass'); AutoDetect(); }
         if (message.action === 'show-telegram') SetMode('telegram');
+        if (message.action === 'show-dns') SetMode('dns');
         if (message.action === 'update-lists') UpdateLists();
         if (message.action === 'check-update') CheckAppUpdate(true);
         if (message.action === 'set-autostart') ToggleAutostart(!!message.data);
@@ -529,9 +565,13 @@ textarea:focus { border-color: #444; color: #aaa; }
             localStorage.setItem('dnsProfile', profileSel.value);
             UpdateDnsProfileHint();
             chk.checked = !!status.enabled;
+            dnsRuntimeStatus = status;
+            UpdateDnsStatusUI();
             if (status.lastError) logMsg('[DNS] ' + status.lastError);
         } catch (error) {
             chk.checked = false;
+            dnsRuntimeStatus = { enabled: false, profile: null, lastError: error.message };
+            UpdateDnsStatusUI();
             logMsg('[!] Не удалось получить состояние защищённого DNS: ' + error.message);
         }
     }
@@ -547,6 +587,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             const result = await ipcRenderer.invoke('doh:set-enabled', { enabled, profile });
             if (!result.ok) throw new Error(result.error || 'неизвестная ошибка');
             chk.checked = !!result.status.enabled;
+            dnsRuntimeStatus = result.status;
             localStorage.setItem('dnsProfile', profile);
             logMsg(chk.checked
                 ? `[DNS] Профиль «${profileSel.selectedOptions[0].text}» включён. Исходные настройки сохранены.`
@@ -554,11 +595,20 @@ textarea:focus { border-color: #444; color: #aaa; }
         } catch (error) {
             const status = await ipcRenderer.invoke('doh:get-status').catch(() => ({ enabled: false }));
             chk.checked = !!status.enabled;
+            dnsRuntimeStatus = status;
             logMsg('[!] Ошибка защищённого DNS: ' + error.message);
         } finally {
             chk.disabled = false;
             profileSel.disabled = false;
+            UpdateDnsStatusUI();
         }
+    }
+
+    function SelectDnsProfile(profile) {
+        const profileSel = document.getElementById('dnsProfileSel');
+        if (!['secure', 'smartAi'].includes(profile)) return;
+        profileSel.value = profile;
+        ChangeDnsProfile();
     }
 
     function ChangeDnsProfile() {
@@ -574,6 +624,54 @@ textarea:focus { border-color: #444; color: #aaa; }
         hint.textContent = profile === 'smartAi'
             ? 'Comss.one: точечный доступ к поддерживаемым ИИ-сервисам. Это сторонний DNS, а не VPN.'
             : 'Шифрует DNS-запросы через Cloudflare/Google, но сам по себе не меняет регион.';
+        document.querySelectorAll('.dns-profile-card').forEach((card) => {
+            card.classList.toggle('selected', card.dataset.profile === profile);
+            card.setAttribute('aria-pressed', String(card.dataset.profile === profile));
+        });
+        UpdateDnsStatusUI();
+    }
+
+    function UpdateDnsStatusUI() {
+        const profileSel = document.getElementById('dnsProfileSel');
+        const checkbox = document.getElementById('dohChk');
+        const card = document.getElementById('dnsStatusCard');
+        const dot = document.getElementById('dnsStatusDot');
+        const title = document.getElementById('dnsStatusTitle');
+        const subtitle = document.getElementById('dnsStatusSub');
+        const compat = document.getElementById('dnsCompat');
+        const compatTitle = document.getElementById('dnsCompatTitle');
+        const compatCopy = document.getElementById('dnsCompatCopy');
+        const master = document.getElementById('dnsMasterRow');
+        if (!profileSel || !checkbox || !card || !compat) return;
+
+        const profile = dnsRuntimeStatus.profile || profileSel.value || 'secure';
+        const enabled = !!dnsRuntimeStatus.enabled;
+        card.classList.toggle('active', enabled);
+        dot.classList.toggle('active', enabled);
+        master.classList.toggle('enabled', enabled);
+        title.textContent = enabled ? 'DNS АКТИВЕН' : 'DNS ВЫКЛЮЧЕН';
+        title.classList.toggle('running', enabled);
+        subtitle.textContent = enabled
+            ? (profile === 'smartAi' ? 'Smart DNS для нейросетей · Comss.one' : 'Защищённые запросы · Cloudflare / Google')
+            : 'Системные настройки DNS не изменены';
+
+        compat.className = 'dns-compat';
+        if (!enabled) {
+            compatTitle.textContent = 'Работает отдельно от обхода';
+            compatCopy.textContent = isRunning
+                ? 'Обход сейчас активен. DNS можно включить или оставить системным — движок продолжит работать.'
+                : 'DNS и обход включаются независимо. Можно использовать любой из них отдельно или вместе.';
+        } else if (profile === 'secure') {
+            compat.classList.add('good');
+            compatTitle.textContent = isRunning ? 'Совместимо с активным обходом' : 'Защищённый DNS работает отдельно';
+            compatCopy.textContent = 'Zapret не перехватывает DNS-порт, поэтому Cloudflare/Google можно использовать одновременно с обходом.';
+        } else {
+            compat.classList.add(isRunning ? 'caution' : 'good');
+            compatTitle.textContent = isRunning ? 'Совместимо, но зависит от сервиса' : 'Smart DNS активен';
+            compatCopy.textContent = isRunning
+                ? 'Обычно режимы работают вместе. Если одна нейросеть перестанет открываться, сначала остановите обход и повторите проверку.'
+                : 'Comss.one меняет маршрутизацию только для поддерживаемых доменов нейросетей; это не VPN.';
+        }
     }
 
     function SaveStrategyChoice() {
@@ -1036,11 +1134,19 @@ textarea:focus { border-color: #444; color: #aaa; }
 
     function CheckDNS() {
         const dns = require('dns');
-        const hosts = [['www.youtube.com','dnsYT'], ['discord.com','dnsDC'], ['t.me','dnsTG']];
+        const hosts = [
+            ['www.youtube.com','dnsYT'],
+            ['discord.com','dnsDC'],
+            ['t.me','dnsTG'],
+            ['gemini.google.com','dnsGemini'],
+            ['chatgpt.com','dnsChatGPT']
+        ];
         hosts.forEach(([host, id]) => {
-            document.getElementById(id).textContent = '...';
+            const result = document.getElementById(id);
+            if (!result) return;
+            result.textContent = '...';
             dns.lookup(host, (err, addr) => {
-                document.getElementById(id).textContent = err ? '✗ ошибка' : addr;
+                result.textContent = err ? '✗ ошибка' : addr;
             });
         });
     }
@@ -1115,11 +1221,15 @@ textarea:focus { border-color: #444; color: #aaa; }
     });
 
     function SetMode(mode) {
+        if (!['bypass', 'dns', 'telegram'].includes(mode)) mode = 'bypass';
         localStorage.setItem('appMode', mode);
         document.getElementById('modeBypass').style.display   = (mode === 'bypass')   ? '' : 'none';
+        document.getElementById('modeDns').style.display      = (mode === 'dns')      ? '' : 'none';
         document.getElementById('modeTelegram').style.display = (mode === 'telegram') ? '' : 'none';
         document.getElementById('modeBtnBypass').className   = 'mode-btn' + (mode === 'bypass'   ? ' active' : '');
+        document.getElementById('modeBtnDns').className      = 'mode-btn' + (mode === 'dns'      ? ' active' : '');
         document.getElementById('modeBtnTelegram').className = 'mode-btn' + (mode === 'telegram' ? ' active' : '');
+        if (mode === 'dns') UpdateDnsStatusUI();
     }
 
     function ProxyTypeChange() {
@@ -1516,6 +1626,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 
 <div class="mode-toggle">
     <button id="modeBtnBypass" class="mode-btn active" onclick="SetMode('bypass')">◼ ОБХОД</button>
+    <button id="modeBtnDns" class="mode-btn" onclick="SetMode('dns')">◻ DNS</button>
     <button id="modeBtnTelegram" class="mode-btn" onclick="SetMode('telegram')">◻ TELEGRAM</button>
 </div>
 
@@ -1587,16 +1698,6 @@ textarea:focus { border-color: #444; color: #aaa; }
     </div>
 </div>
 
-<div class="card">
-    <div class="card-title-row">
-        <div class="card-title" style="margin-bottom:0">DNS-статус</div>
-        <button class="btn btn-ghost btn-icon" onclick="CheckDNS()">[↻]</button>
-    </div>
-    <div class="dns-row">www.youtube.com <span id="dnsYT">—</span></div>
-    <div class="dns-row">discord.com <span id="dnsDC">—</span></div>
-    <div class="dns-row">t.me        <span id="dnsTG">—</span></div>
-</div>
-
 <div class="settings-stack">
     <label class="autostart-row">
         <input type="checkbox" id="autostartChk" onclick="ToggleAutostart()">
@@ -1606,17 +1707,6 @@ textarea:focus { border-color: #444; color: #aaa; }
         <input type="checkbox" id="quietModeChk" onclick="ToggleQuietMode()">
         <span class="autostart-label">Тихий режим — без фоновых уведомлений</span>
     </label>
-    <div class="select-wrap">
-        <select id="dnsProfileSel" onchange="ChangeDnsProfile()">
-            <option value="secure">Защищённый DNS — Cloudflare / Google</option>
-            <option value="smartAi">Smart DNS для нейросетей — Comss.one</option>
-        </select>
-    </div>
-    <label class="autostart-row">
-        <input type="checkbox" id="dohChk" onclick="ToggleDoH()">
-        <span class="autostart-label">Включить выбранный DNS-профиль</span>
-    </label>
-    <div id="dnsProfileHint" class="proxy-hint"></div>
 </div>
 
 <div class="btn-row">
@@ -1655,6 +1745,59 @@ textarea:focus { border-color: #444; color: #aaa; }
     <button class="btn btn-stop" style="flex:none;padding:10px 18px;" onclick="Nuke()">СБРОС</button>
 </div>
 </div><!-- /modeBypass -->
+
+<div id="modeDns" style="display:none">
+<div id="dnsStatusCard" class="status-card dns-hero">
+    <div id="dnsStatusDot" class="status-dot"></div>
+    <div class="status-info">
+        <div id="dnsStatusTitle" class="status-title">DNS ВЫКЛЮЧЕН</div>
+        <div id="dnsStatusSub" class="status-sub">Системные настройки DNS не изменены</div>
+    </div>
+</div>
+
+<div id="dnsCompat" class="dns-compat">
+    <div id="dnsCompatTitle" class="dns-compat-title">Работает отдельно от обхода</div>
+    <div id="dnsCompatCopy" class="dns-compat-copy">DNS и обход включаются независимо. Можно использовать любой из них отдельно или вместе.</div>
+</div>
+
+<div class="card">
+    <div class="card-title">Выберите DNS-профиль</div>
+    <select id="dnsProfileSel" onchange="ChangeDnsProfile()" style="display:none">
+        <option value="secure">Защищённый DNS — Cloudflare / Google</option>
+        <option value="smartAi">Smart DNS для нейросетей — Comss.one</option>
+    </select>
+    <div class="dns-profile-grid">
+        <button class="dns-profile-card selected" data-profile="secure" aria-pressed="true" onclick="SelectDnsProfile('secure')">
+            <span class="dns-profile-name">ЗАЩИЩЁННЫЙ DNS</span>
+            <span class="dns-profile-copy">Шифрует DNS-запросы и защищает их от подмены провайдером.</span>
+            <span class="dns-profile-meta">Cloudflare · Google</span>
+        </button>
+        <button class="dns-profile-card" data-profile="smartAi" aria-pressed="false" onclick="SelectDnsProfile('smartAi')">
+            <span class="dns-profile-name">DNS ДЛЯ НЕЙРОСЕТЕЙ</span>
+            <span class="dns-profile-copy">Точечный доступ к поддерживаемым ИИ-сервисам без полного VPN.</span>
+            <span class="dns-profile-meta">Comss.one · сторонний</span>
+        </button>
+    </div>
+    <label id="dnsMasterRow" class="autostart-row dns-master-row">
+        <input type="checkbox" id="dohChk" onclick="ToggleDoH()">
+        <span class="autostart-label">Включить выбранный DNS-профиль</span>
+    </label>
+    <div id="dnsProfileHint" class="proxy-hint"></div>
+    <div class="dns-disclaimer">При выключении или полном выходе приложение восстановит прежний DNS. Закрытие окна крестиком только сворачивает приложение в трей.</div>
+</div>
+
+<div class="card">
+    <div class="card-title-row">
+        <div class="card-title" style="margin-bottom:0">Разрешение доменов</div>
+        <button class="btn btn-ghost btn-icon" onclick="CheckDNS()">[↻]</button>
+    </div>
+    <div class="dns-row">www.youtube.com <span id="dnsYT">—</span></div>
+    <div class="dns-row">discord.com <span id="dnsDC">—</span></div>
+    <div class="dns-row">t.me <span id="dnsTG">—</span></div>
+    <div class="dns-row">gemini.google.com <span id="dnsGemini">—</span></div>
+    <div class="dns-row">chatgpt.com <span id="dnsChatGPT">—</span></div>
+</div>
+</div><!-- /modeDns -->
 
 <div id="modeTelegram" style="display:none">
 <div class="card">

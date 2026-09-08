@@ -460,6 +460,7 @@ function buildTrayMenu() {
     { type: 'separator' },
     { label: trayState.running ? 'Остановить обход' : 'Запустить обход', click: () => sendTrayAction('toggle-engine') },
     { label: 'Автоподбор стратегии', click: () => sendTrayAction('auto-detect') },
+    { label: 'Настройки DNS', click: () => { showMainWindow(); sendTrayAction('show-dns'); } },
     { label: 'Telegram-прокси', click: () => { showMainWindow(); sendTrayAction('show-telegram'); } },
     { type: 'separator' },
     { label: 'Обновить списки', click: () => sendTrayAction('update-lists') },
