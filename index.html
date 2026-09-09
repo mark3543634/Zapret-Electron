@@ -279,6 +279,8 @@ textarea:focus { border-color: #444; color: #aaa; }
 .dns-compat-title { font-size: 10px; color: #aaa; letter-spacing: 1px; text-transform: uppercase; }
 .dns-compat-copy { margin-top: 4px; color: #555; font-size: 10px; line-height: 1.5; }
 .dns-disclaimer { color: #414141; font-size: 10px; line-height: 1.55; margin-top: 7px; }
+.preview-card { display: none; border-color: #a58a36; color: #8f7a3c; font-size: 10px; line-height: 1.5; }
+.preview-card.visible { display: block; }
 
 /* Telegram proxy card */
 .proxy-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
@@ -324,6 +326,7 @@ textarea:focus { border-color: #444; color: #aaa; }
     let latestUpdate = null;
     let rollbackRelease = null;
     let dnsRuntimeStatus = { enabled: false, profile: null };
+    let uiPreviewMode = false;
 
     const strPath       = __dirname;
     const excludeFile   = path.join(strPath, 'lists', 'list-exclude.txt');
@@ -471,6 +474,14 @@ textarea:focus { border-color: #444; color: #aaa; }
         const versionEl = document.getElementById('appVersion');
         if (versionEl && data.version) versionEl.textContent = 'v' + data.version.replace(/\.0$/, '');
         rollbackRelease = data.rollback || null;
+        uiPreviewMode = !!data.preview;
+        if (uiPreviewMode) {
+            document.getElementById('previewCard').classList.add('visible');
+            document.getElementById('mBtn').disabled = true;
+            document.getElementById('autoBtn').disabled = true;
+            document.getElementById('dohChk').disabled = true;
+            document.title = '[PREVIEW] Zapret Electron';
+        }
         const rollbackBtn = document.getElementById('rollbackBtn');
         if (rollbackBtn) {
             rollbackBtn.style.display = rollbackRelease ? '' : 'none';
@@ -579,6 +590,11 @@ textarea:focus { border-color: #444; color: #aaa; }
     async function ToggleDoH(forceValue) {
         const chk = document.getElementById('dohChk');
         const profileSel = document.getElementById('dnsProfileSel');
+        if (uiPreviewMode) {
+            chk.checked = false;
+            logMsg('[PREVIEW] DNS не изменён: старый Zapret продолжает работать.');
+            return;
+        }
         const enabled = typeof forceValue === 'boolean' ? forceValue : chk.checked;
         chk.disabled = true;
         profileSel.disabled = true;
@@ -684,6 +700,10 @@ textarea:focus { border-color: #444; color: #aaa; }
     }
 
     function Nuke() {
+        if (uiPreviewMode) {
+            logMsg('[PREVIEW] Рабочий экземпляр не затронут.');
+            return;
+        }
         const wasRunning = isRunning;
         isRunning = false;
         engineProcess = null;
@@ -697,6 +717,10 @@ textarea:focus { border-color: #444; color: #aaa; }
     }
 
     function StartEngine() {
+        if (uiPreviewMode) {
+            logMsg('[PREVIEW] Запуск обхода заблокирован, пока открыт старый Zapret.');
+            return;
+        }
         if (isAutoDetecting) { alert('Сначала остановите автоподбор!'); return; }
         if (!isRunning) {
             const sel      = document.getElementById('stratSel');
@@ -718,6 +742,10 @@ textarea:focus { border-color: #444; color: #aaa; }
     }
 
     function AutoDetect() {
+        if (uiPreviewMode) {
+            logMsg('[PREVIEW] Автоподбор недоступен в безопасном предпросмотре.');
+            return;
+        }
         if (isProcessingClick) return;
         isProcessingClick = true;
         setTimeout(() => { isProcessingClick = false; }, 800);
@@ -1628,6 +1656,10 @@ textarea:focus { border-color: #444; color: #aaa; }
     <button id="modeBtnBypass" class="mode-btn active" onclick="SetMode('bypass')">◼ ОБХОД</button>
     <button id="modeBtnDns" class="mode-btn" onclick="SetMode('dns')">◻ DNS</button>
     <button id="modeBtnTelegram" class="mode-btn" onclick="SetMode('telegram')">◻ TELEGRAM</button>
+</div>
+
+<div id="previewCard" class="card preview-card">
+    ПРЕДПРОСМОТР · Старый Zapret продолжает работать. Запуск обхода и изменение DNS в этом окне временно заблокированы.
 </div>
 
 <div id="updateCard" class="card update-card">

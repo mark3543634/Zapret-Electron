@@ -6,6 +6,11 @@ const dgram = require('dgram')
 const crypto = require('crypto')
 const { execSync, spawn, spawnSync } = require('child_process')
 
+const previewMode = process.argv.includes('--ui-preview');
+if (previewMode) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'zapret-pro-ui-preview'));
+}
+
 let mainWindow;
 let tray = null;
 let trayClickTimer = null;
@@ -658,6 +663,7 @@ async function getCurrentReleaseForRollback() {
 async function installUpdate(update, purpose = 'update') {
   sendToRenderer('update-status', { state: 'preparing', purpose });
   try {
+    if (previewMode) throw new Error('Установка обновлений недоступна в режиме предпросмотра');
     const downloaded = await downloadVerifiedInstaller(update, purpose);
     const signatureStatus = getAuthenticodeStatus(downloaded.filePath);
     if (!['Valid', 'NotSigned'].includes(signatureStatus)) {
@@ -735,13 +741,14 @@ function createWindow () {
   mainWindow.webContents.on('did-finish-load', () => {
     sendToRenderer('app-version', {
       version: app.getVersion(),
-      rollback: readUpdaterState().previousRelease || null
+      rollback: readUpdaterState().previousRelease || null,
+      preview: previewMode
     });
   });
 
   // Прячем в трей при нажатии на крестик
   mainWindow.on('close', function (event) {
-    if (!app.isQuiting) {
+    if (!app.isQuiting && !previewMode) {
       event.preventDefault(); 
       mainWindow.hide();      
     }
@@ -755,8 +762,10 @@ function createWindow () {
 app.whenReady().then(async () => {
   if (!ownsSingleInstanceLock) return;
 
-  try { await recoverDohState(); }
-  catch (error) { dohStats.lastError = `Ошибка восстановления DNS: ${error.message}`; }
+  if (!previewMode) {
+    try { await recoverDohState(); }
+    catch (error) { dohStats.lastError = `Ошибка восстановления DNS: ${error.message}`; }
+  }
 
   const shouldAutostart = process.argv.includes('--autostart');
   createWindow()
@@ -767,32 +776,33 @@ app.whenReady().then(async () => {
     });
   }
 
-  tray = new Tray(emptyIcon);
-  
-  tray.setToolTip('Zapret Electron: Загрузка...')
-  buildTrayMenu()
+  if (!previewMode) {
+    tray = new Tray(emptyIcon);
+    tray.setToolTip('Zapret Electron: Загрузка...')
+    buildTrayMenu()
 
-  globalShortcut.register('Ctrl+Shift+Z', () => {
-    mainWindow.webContents.send('hotkey-toggle');
-  });
+    globalShortcut.register('Ctrl+Shift+Z', () => {
+      mainWindow.webContents.send('hotkey-toggle');
+    });
 
-  tray.on('click', () => {
-    // Windows также генерирует click во время double-click. Ждём немного,
-    // чтобы одиночный обработчик не спрятал окно сразу после двойного клика.
-    if (trayClickTimer) clearTimeout(trayClickTimer);
-    trayClickTimer = setTimeout(() => {
-      trayClickTimer = null;
-      toggleMainWindow();
-    }, 300);
-  })
+    tray.on('click', () => {
+      // Windows также генерирует click во время double-click. Ждём немного,
+      // чтобы одиночный обработчик не спрятал окно сразу после двойного клика.
+      if (trayClickTimer) clearTimeout(trayClickTimer);
+      trayClickTimer = setTimeout(() => {
+        trayClickTimer = null;
+        toggleMainWindow();
+      }, 300);
+    })
 
-  tray.on('double-click', () => {
-    if (trayClickTimer) {
-      clearTimeout(trayClickTimer);
-      trayClickTimer = null;
-    }
-    showMainWindow();
-  })
+    tray.on('double-click', () => {
+      if (trayClickTimer) {
+        clearTimeout(trayClickTimer);
+        trayClickTimer = null;
+      }
+      showMainWindow();
+    })
+  }
 })
 
 app.on('activate', showMainWindow);
@@ -823,6 +833,7 @@ ipcMain.on('rollback-update', async () => {
 ipcMain.handle('doh:get-status', () => getDohStatus());
 ipcMain.handle('doh:set-enabled', async (_event, request) => {
   try {
+    if (previewMode) throw new Error('В режиме предпросмотра DNS не изменяется');
     const enabled = typeof request === 'object' ? !!request.enabled : !!request;
     const profile = typeof request === 'object' ? request.profile : 'secure';
     const status = enabled ? await enableDoh(profile) : disableDoh();
@@ -851,7 +862,7 @@ app.on('before-quit', (event) => {
     trayClickTimer = null;
   }
   globalShortcut.unregisterAll();
-  cleanupEngine(); // <-- УБИВАЕМ ПРОЦЕССЫ, ЕСЛИ ПРОГРАММА ЗАКРЫЛАСЬ ИНАЧЕ (например, перезагрузка ПК)
+  if (!previewMode) cleanupEngine(); // Не трогаем рабочий экземпляр из окна предпросмотра.
   if (tray) {
       tray.destroy();
   }
