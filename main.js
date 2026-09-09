@@ -3,12 +3,17 @@ const path = require('path')
 const fs = require('fs')
 const https = require('https')
 const dgram = require('dgram')
+const net = require('net')
+const tls = require('tls')
+const dns = require('dns')
 const crypto = require('crypto')
 const { execSync, spawn, spawnSync } = require('child_process')
 
 const previewMode = process.argv.includes('--ui-preview');
-if (previewMode) {
-  app.setPath('userData', path.join(app.getPath('appData'), 'zapret-pro-ui-preview'));
+const testInstanceMode = process.argv.includes('--test-instance');
+if (previewMode || testInstanceMode) {
+  const isolatedProfile = previewMode ? 'zapret-pro-ui-preview' : 'zapret-pro-test-instance';
+  app.setPath('userData', path.join(app.getPath('appData'), isolatedProfile));
 }
 
 let mainWindow;
@@ -30,6 +35,9 @@ let dohProfile = null;
 let dohExitBlocked = false;
 let dnsWatchdogStarted = false;
 let dohStats = { queries: 0, replies: 0, lastError: '', lastEndpoint: '' };
+let dnsHealthTimer = null;
+let dnsHealthFailures = 0;
+let dnsHealthState = 'idle';
 
 const DOH_ENDPOINTS = [
   { host: '1.1.1.1', servername: 'cloudflare-dns.com', label: 'Cloudflare 1' },
@@ -308,6 +316,68 @@ async function testSmartDns(addresses) {
   throw new Error(`Smart DNS недоступен: ${errors.join('; ')}`);
 }
 
+function stopDnsHealthMonitor() {
+  if (dnsHealthTimer) clearInterval(dnsHealthTimer);
+  dnsHealthTimer = null;
+  dnsHealthFailures = 0;
+  dnsHealthState = 'idle';
+}
+
+async function checkDnsProfileHealth() {
+  if (!dohEnabled || !dohProfile) return;
+  const profile = DNS_PROFILES[dohProfile];
+  if (!profile) return;
+  try {
+    let detail = '';
+    if (profile.localProxy) {
+      await testDohProxy();
+      detail = dohStats.lastEndpoint || 'Cloudflare / Google';
+    } else {
+      const checks = await Promise.allSettled(profile.addresses.map((address) => testUdpDnsServer(address, 2200)));
+      const healthy = profile.addresses.filter((_address, index) => checks[index].status === 'fulfilled');
+      if (!healthy.length) throw new Error('резервные Smart DNS не отвечают');
+      const failed = profile.addresses.filter((address) => !healthy.includes(address));
+      const ordered = [...healthy, ...failed];
+      const state = readDohState();
+      if (state && Array.isArray(state.adapters) && ordered.join(',') !== profile.addresses.join(',')) {
+        setAdapterDns(state.adapters, ordered);
+      }
+      detail = healthy.join(', ');
+    }
+    dnsHealthFailures = 0;
+    dnsHealthState = 'healthy';
+    sendToRenderer('dns:health-event', { state: 'healthy', profile: dohProfile, detail });
+  } catch (error) {
+    dnsHealthFailures++;
+    dnsHealthState = dnsHealthFailures >= 3 ? 'restoring' : 'degraded';
+    sendToRenderer('dns:health-event', {
+      state: dnsHealthState,
+      profile: dohProfile,
+      failures: dnsHealthFailures,
+      detail: error.message
+    });
+    if (dnsHealthFailures >= 3) {
+      try {
+        disableDoh();
+        sendToRenderer('dns:health-event', {
+          state: 'restored',
+          detail: 'DNS-профиль не ответил три раза. Исходные настройки восстановлены.'
+        });
+      } catch (restoreError) {
+        dohStats.lastError = `Не удалось автоматически восстановить DNS: ${restoreError.message}`;
+        sendToRenderer('dns:health-event', { state: 'error', detail: dohStats.lastError });
+      }
+    }
+  }
+}
+
+function startDnsHealthMonitor() {
+  if (dnsHealthTimer) clearInterval(dnsHealthTimer);
+  dnsHealthFailures = 0;
+  dnsHealthState = 'checking';
+  dnsHealthTimer = setInterval(() => { checkDnsProfileHealth().catch(() => {}); }, 60 * 1000);
+}
+
 function stopDohProxy() {
   const socket = dohSocket;
   dohSocket = null;
@@ -339,6 +409,7 @@ async function enableDoh(profileName = 'secure') {
     setAdapterDns(adapters, profile.addresses);
     dohEnabled = true;
     dohProfile = profileName;
+    startDnsHealthMonitor();
     return getDohStatus();
   } catch (error) {
     try { restoreDnsFromState(state); } catch (_) {}
@@ -349,6 +420,7 @@ async function enableDoh(profileName = 'secure') {
 }
 
 function disableDoh() {
+  stopDnsHealthMonitor();
   const state = readDohState();
   restoreDnsFromState(state);
   try { if (fs.existsSync(dohStatePath())) fs.unlinkSync(dohStatePath()); } catch (_) {}
@@ -359,7 +431,14 @@ function disableDoh() {
 }
 
 function getDohStatus() {
-  return { enabled: dohEnabled, profile: dohProfile, proxyRunning: !!dohSocket, ...dohStats };
+  return {
+    enabled: dohEnabled,
+    profile: dohProfile,
+    proxyRunning: !!dohSocket,
+    healthState: dnsHealthState,
+    healthFailures: dnsHealthFailures,
+    ...dohStats
+  };
 }
 
 async function recoverDohState() {
@@ -374,6 +453,7 @@ async function recoverDohState() {
     dohEnabled = true;
     dohProfile = state.profile || 'secure';
     startDnsRecoveryWatchdog();
+    startDnsHealthMonitor();
     dohStats.lastError = `Не удалось восстановить DNS: ${error.message}`;
   }
 }
@@ -392,6 +472,237 @@ function emergencyRestoreDns() {
     dohStats.lastError = `Аварийное восстановление DNS: ${error.message}`;
     return false;
   }
+}
+
+const DIAGNOSTIC_TARGETS = {
+  youtube: { label: 'YouTube', host: 'www.youtube.com', path: '/generate_204' },
+  discord: { label: 'Discord', host: 'discord.com', path: '/' },
+  telegram: { label: 'Telegram', host: 't.me', path: '/' },
+  chatgpt: { label: 'ChatGPT', host: 'chatgpt.com', path: '/' },
+  gemini: { label: 'Gemini', host: 'gemini.google.com', path: '/' }
+};
+
+function measured(startedAt, value) {
+  return { ...value, ms: Date.now() - startedAt };
+}
+
+function probeTcp(host, port = 443, timeoutMs = 4500) {
+  const startedAt = Date.now();
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host, port });
+    let finished = false;
+    const finish = (result) => {
+      if (finished) return;
+      finished = true;
+      socket.destroy();
+      resolve(measured(startedAt, result));
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish({ ok: true }));
+    socket.once('timeout', () => finish({ ok: false, error: 'таймаут TCP' }));
+    socket.once('error', (error) => finish({ ok: false, error: error.message, code: error.code || '' }));
+  });
+}
+
+function probeTls(address, servername, timeoutMs = 5500) {
+  const startedAt = Date.now();
+  return new Promise((resolve) => {
+    const socket = tls.connect({ host: address, port: 443, servername, rejectUnauthorized: true });
+    let finished = false;
+    const finish = (result) => {
+      if (finished) return;
+      finished = true;
+      socket.destroy();
+      resolve(measured(startedAt, result));
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('secureConnect', () => finish({ ok: true, protocol: socket.getProtocol() || '' }));
+    socket.once('timeout', () => finish({ ok: false, error: 'таймаут TLS' }));
+    socket.once('error', (error) => finish({ ok: false, error: error.message, code: error.code || '' }));
+  });
+}
+
+function probeHttps(host, requestPath = '/', timeoutMs = 7000) {
+  const startedAt = Date.now();
+  return new Promise((resolve) => {
+    let finished = false;
+    const finish = (result) => {
+      if (finished) return;
+      finished = true;
+      resolve(measured(startedAt, result));
+    };
+    const req = https.request({
+      hostname: host,
+      port: 443,
+      path: requestPath,
+      method: 'GET',
+      timeout: timeoutMs,
+      headers: { 'User-Agent': `Zapret-Electron/${app.getVersion()}`, 'Accept': '*/*' }
+    }, (res) => {
+      const chunks = [];
+      let size = 0;
+      res.on('data', (chunk) => {
+        if (size < 8192) chunks.push(chunk.slice(0, 8192 - size));
+        size += chunk.length;
+      });
+      res.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8').toLowerCase();
+        const blockPage = /доступ[^<]{0,80}(ограничен|заблокирован)|единый реестр|access denied|unavailable for legal reasons/.test(body);
+        finish({ ok: true, status: Number(res.statusCode || 0), blockPage });
+      });
+    });
+    req.once('timeout', () => req.destroy(new Error('таймаут HTTPS')));
+    req.once('error', (error) => finish({ ok: false, error: error.message, code: error.code || '' }));
+    req.end();
+  });
+}
+
+function resolveWithSystem(host) {
+  const startedAt = Date.now();
+  return dns.promises.lookup(host, { all: true, family: 4 })
+    .then((records) => {
+      const addresses = records.map((record) => record.address).filter(Boolean);
+      return measured(startedAt, { ok: addresses.length > 0, addresses });
+    })
+    .catch((error) => measured(startedAt, { ok: false, addresses: [], error: error.message, code: error.code || '' }));
+}
+
+function resolveWithPublicDoh(host, timeoutMs = 6000) {
+  const startedAt = Date.now();
+  return new Promise((resolve) => {
+    let finished = false;
+    const finish = (result) => {
+      if (finished) return;
+      finished = true;
+      resolve(measured(startedAt, result));
+    };
+    const req = https.request({
+      host: '1.1.1.1',
+      servername: 'cloudflare-dns.com',
+      port: 443,
+      path: `/dns-query?name=${encodeURIComponent(host)}&type=A`,
+      method: 'GET',
+      timeout: timeoutMs,
+      headers: { Host: 'cloudflare-dns.com', Accept: 'application/dns-json' }
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        try {
+          const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          const addresses = (payload.Answer || []).filter((item) => item.type === 1).map((item) => String(item.data));
+          finish({ ok: res.statusCode === 200 && addresses.length > 0, addresses, status: res.statusCode });
+        } catch (error) { finish({ ok: false, addresses: [], error: error.message }); }
+      });
+    });
+    req.once('timeout', () => req.destroy(new Error('таймаут публичного DoH')));
+    req.once('error', (error) => finish({ ok: false, addresses: [], error: error.message, code: error.code || '' }));
+    req.end();
+  });
+}
+
+function collectSystemSignals() {
+  try {
+    const command = [
+      "$adapters=@(Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object {[pscustomobject]@{Name=[string]$_.Name; Description=[string]$_.InterfaceDescription; Index=[int]$_.ifIndex; Hardware=[bool]$_.HardwareInterface}})",
+      "$dns=@(Get-DnsClientServerAddress -AddressFamily IPv4 | Where-Object {$_.ServerAddresses.Count -gt 0} | ForEach-Object {[pscustomobject]@{Name=[string]$_.InterfaceAlias; Index=[int]$_.InterfaceIndex; Servers=@($_.ServerAddresses)}})",
+      "$ports=@(Get-NetUDPEndpoint -LocalPort 53 -ErrorAction SilentlyContinue | ForEach-Object {$p=Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; [pscustomobject]@{Address=[string]$_.LocalAddress; Pid=[int]$_.OwningProcess; Process=[string]$p.ProcessName}})",
+      "$reg=Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue",
+      "$proxy=[pscustomobject]@{Enabled=([int]$reg.ProxyEnable -eq 1); Server=[string]$reg.ProxyServer; AutoConfig=[string]$reg.AutoConfigURL}",
+      "$winws=@(Get-CimInstance Win32_Process -Filter \"Name='winws.exe'\" -ErrorAction SilentlyContinue | ForEach-Object {[pscustomobject]@{Pid=[int]$_.ProcessId; Path=[string]$_.ExecutablePath}})",
+      "$services=@(Get-Service -Name 'WinDivert*' -ErrorAction SilentlyContinue | ForEach-Object {[pscustomobject]@{Name=[string]$_.Name; Status=[string]$_.Status}})",
+      "[pscustomobject]@{Adapters=$adapters; Dns=$dns; Port53=$ports; Proxy=$proxy; Winws=$winws; WinDivert=$services} | ConvertTo-Json -Compress -Depth 5"
+    ].join('; ');
+    const output = runPowerShell(command);
+    return output ? JSON.parse(output) : {};
+  } catch (error) {
+    return { error: error.message };
+  }
+}
+
+function buildConflictList(system, engineRunning) {
+  const conflicts = [];
+  const adapters = Array.isArray(system.Adapters) ? system.Adapters : (system.Adapters ? [system.Adapters] : []);
+  const tunnels = adapters.filter((adapter) => /vpn|wireguard|wintun|tap|tun|tailscale|zerotier|radmin|hamachi|adguard|happ/i.test(`${adapter.Name} ${adapter.Description}`));
+  if (tunnels.length) conflicts.push({ level: 'warning', title: 'Обнаружен туннель или сетевой фильтр', detail: tunnels.map((item) => item.Name).join(', ') });
+
+  if (system.Proxy && (system.Proxy.Enabled || system.Proxy.AutoConfig)) {
+    conflicts.push({ level: 'warning', title: 'Системный прокси Windows активен', detail: system.Proxy.Server || system.Proxy.AutoConfig });
+  }
+
+  const port53 = Array.isArray(system.Port53) ? system.Port53 : (system.Port53 ? [system.Port53] : []);
+  const foreignDns = port53.filter((item) => Number(item.Pid) !== process.pid);
+  if (foreignDns.length) conflicts.push({ level: 'warning', title: 'DNS-порт 53 занят другой программой', detail: foreignDns.map((item) => `${item.Process || 'PID'} ${item.Pid}`).join(', ') });
+
+  const dnsRows = Array.isArray(system.Dns) ? system.Dns : (system.Dns ? [system.Dns] : []);
+  const staleLoopback = dnsRows.some((row) => (Array.isArray(row.Servers) ? row.Servers : [row.Servers]).includes('127.0.0.1')) && !dohEnabled;
+  if (staleLoopback) conflicts.push({ level: 'error', title: 'Остался локальный DNS 127.0.0.1', detail: 'Защищённый DNS приложения выключен, но Windows всё ещё направляет запросы на локальный адрес.' });
+
+  const winws = Array.isArray(system.Winws) ? system.Winws : (system.Winws ? [system.Winws] : []);
+  if (winws.length > (engineRunning ? 1 : 0)) conflicts.push({ level: 'warning', title: 'Запущено несколько процессов обхода', detail: `Найдено процессов winws.exe: ${winws.length}` });
+  return conflicts;
+}
+
+function classifyDiagnostics(target, evidence, system, engineRunning) {
+  const controlsOk = evidence.controls.some((item) => item.ok && item.status > 0 && item.status < 500);
+  const adapters = Array.isArray(system.Adapters) ? system.Adapters : (system.Adapters ? [system.Adapters] : []);
+  if (!controlsOk) {
+    return adapters.length
+      ? { code: 'provider', level: 'error', title: 'Нет стабильного доступа в интернет', confidence: 'высокая', detail: 'Сетевой адаптер подключён, но контрольные сайты не отвечают. Возможен сбой маршрута, подключения у провайдера или работа VPN/фильтра.', advice: 'Проверьте другие сайты, перезапустите роутер и временно отключите сторонний VPN или сетевой фильтр.' }
+      : { code: 'local-network', level: 'error', title: 'Нет активного сетевого подключения', confidence: 'высокая', detail: 'Windows не показывает активный сетевой адаптер с доступом.', advice: 'Подключитесь к Wi‑Fi или кабелю и повторите диагностику.' };
+  }
+  if (!evidence.systemDns.ok && evidence.publicDns.ok) {
+    return { code: 'dns', level: 'error', title: 'Проблема DNS', confidence: 'высокая', detail: 'Публичный защищённый DNS видит домен, а системный DNS Windows — нет. Возможны подмена DNS провайдером или некорректные локальные настройки.', advice: 'Включите профиль «Защищённый DNS» и повторите проверку.' };
+  }
+  if (!evidence.systemDns.ok && !evidence.publicDns.ok) {
+    return { code: 'dns-or-domain', level: 'error', title: 'Домен не разрешается', confidence: 'средняя', detail: 'Домен не найден ни системным DNS, ни контрольным публичным DoH.', advice: 'Повторите тест позже: возможен сбой DNS или самого домена.' };
+  }
+  if (!evidence.tcp.ok) {
+    return { code: 'ip-filter', level: 'warning', title: 'Не устанавливается соединение с адресом сервиса', confidence: 'средняя', detail: 'DNS работает, общий интернет доступен, но TCP-подключение к сервису не создаётся. Возможны фильтрация IP/ТСПУ, проблема маршрута у провайдера или сбой самого сервиса.', advice: 'Запустите обход и повторите тест. Если результат не изменится, проблема может быть на маршруте или у сервиса.' };
+  }
+  if (!evidence.tls.ok) {
+    return { code: 'dpi', level: 'warning', title: 'Вероятна фильтрация TLS/SNI через DPI или ТСПУ', confidence: 'средняя', detail: `TCP-соединение установлено, но защищённое TLS-соединение оборвалось: ${evidence.tls.error || 'ошибка handshake'}. Это характерный, но не абсолютный признак DPI.`, advice: 'Включите Zapret или запустите автоподбор стратегии и повторите диагностику.' };
+  }
+  if (evidence.https.blockPage || [451].includes(evidence.https.status)) {
+    return { code: 'block-page', level: 'warning', title: 'Получена страница ограничения доступа', confidence: 'высокая', detail: `Сервис или промежуточный фильтр вернул HTTP ${evidence.https.status}.`, advice: 'Попробуйте другую стратегию обхода. Код 451 также может возвращать сам сервис по юридическим причинам.' };
+  }
+  if ([401, 403].includes(evidence.https.status)) {
+    return { code: 'service-policy', level: 'warning', title: 'Сервис доступен, но отклонил запрос', confidence: 'средняя', detail: `TLS работает, сервер ответил HTTP ${evidence.https.status}. Вероятнее ограничение региона, аккаунта, антибот-защита или правила самого сервиса, а не поломка DNS.`, advice: 'Проверьте сервис в браузере. Обычный DNS не всегда может изменить регион, а Zapret не скрывает внешний IP.' };
+  }
+  if (!evidence.https.ok) {
+    return { code: 'https-filter', level: 'warning', title: 'HTTPS обрывается после подключения', confidence: 'средняя', detail: `DNS, TCP и TLS прошли, но запрос завершился ошибкой: ${evidence.https.error || 'нет ответа'}. Возможны фильтрация ответа, нестабильная сеть или сбой сервиса.`, advice: 'Повторите тест с обходом и без него и сравните результат.' };
+  }
+  return {
+    code: 'available', level: 'good', title: `${target.label} доступен`, confidence: 'высокая',
+    detail: engineRunning ? 'Сервис отвечает при активной стратегии Zapret.' : 'DNS, TCP, TLS и HTTPS работают без активного обхода.',
+    advice: engineRunning ? 'Чтобы понять, нужен ли обход, остановите его вручную и повторите диагностику.' : 'Дополнительные действия не требуются.'
+  };
+}
+
+async function runNetworkDiagnostics(targetId, engineRunning) {
+  const target = DIAGNOSTIC_TARGETS[targetId];
+  if (!target) throw new Error('неизвестный сервис для диагностики');
+  const system = collectSystemSignals();
+  const [systemDns, publicDns, ...controls] = await Promise.all([
+    resolveWithSystem(target.host),
+    resolveWithPublicDoh(target.host),
+    probeHttps('www.gstatic.com', '/generate_204', 5500),
+    probeHttps('www.microsoft.com', '/', 5500)
+  ]);
+  const address = systemDns.addresses && systemDns.addresses[0];
+  const tcp = address ? await probeTcp(address) : { ok: false, error: 'нет IP-адреса', ms: 0 };
+  const tlsResult = tcp.ok ? await probeTls(address, target.host) : { ok: false, error: 'TCP недоступен', ms: 0 };
+  const httpsResult = tlsResult.ok ? await probeHttps(target.host, target.path) : { ok: false, error: 'TLS недоступен', ms: 0 };
+  const evidence = { systemDns, publicDns, controls, tcp, tls: tlsResult, https: httpsResult };
+  return {
+    target: { id: targetId, label: target.label, host: target.host },
+    diagnosis: classifyDiagnostics(target, evidence, system, !!engineRunning),
+    evidence,
+    system,
+    conflicts: buildConflictList(system, !!engineRunning),
+    dns: getDohStatus(),
+    checkedAt: new Date().toISOString()
+  };
 }
 
 function isAdmin() {
@@ -467,6 +778,7 @@ function buildTrayMenu() {
     { label: 'Автоподбор стратегии', click: () => sendTrayAction('auto-detect') },
     { label: 'Настройки DNS', click: () => { showMainWindow(); sendTrayAction('show-dns'); } },
     { label: 'Telegram-прокси', click: () => { showMainWindow(); sendTrayAction('show-telegram'); } },
+    { label: 'Диагностика и обновления', click: () => { showMainWindow(); sendTrayAction('show-system'); } },
     { type: 'separator' },
     { label: 'Обновить списки', click: () => sendTrayAction('update-lists') },
     { label: 'Проверить обновление приложения', click: () => { showMainWindow(); sendTrayAction('check-update'); } },
@@ -748,7 +1060,7 @@ function createWindow () {
 
   // Прячем в трей при нажатии на крестик
   mainWindow.on('close', function (event) {
-    if (!app.isQuiting && !previewMode) {
+    if (!app.isQuiting && !previewMode && !testInstanceMode) {
       event.preventDefault(); 
       mainWindow.hide();      
     }
@@ -831,6 +1143,15 @@ ipcMain.on('rollback-update', async () => {
 });
 
 ipcMain.handle('doh:get-status', () => getDohStatus());
+ipcMain.handle('diagnostics:run', async (_event, request) => {
+  try {
+    const target = request && request.target ? String(request.target) : 'youtube';
+    const engineRunning = !!(request && request.engineRunning);
+    return { ok: true, result: await runNetworkDiagnostics(target, engineRunning) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
 ipcMain.handle('doh:set-enabled', async (_event, request) => {
   try {
     if (previewMode) throw new Error('В режиме предпросмотра DNS не изменяется');

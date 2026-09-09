@@ -243,7 +243,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 
 /* Mode toggle */
 .mode-toggle { display: flex; gap: 7px; margin: 10px 0 10px 0; }
-.mode-btn { flex: 1; padding: 8px 4px; font-size: 11px; font-family: inherit; background: #111; color: #555; border: 1px solid #333; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: all 0.15s; }
+.mode-btn { flex: 1; padding: 8px 3px; font-size: 10px; font-family: inherit; background: #111; color: #555; border: 1px solid #333; cursor: pointer; text-transform: uppercase; letter-spacing: .7px; transition: all 0.15s; }
 .mode-btn:hover { border-color: #555; color: #888; }
 .mode-btn.active { background: #1a1a1a; color: #c8ff00; border-color: #c8ff00; }
 
@@ -281,6 +281,35 @@ textarea:focus { border-color: #444; color: #aaa; }
 .dns-disclaimer { color: #414141; font-size: 10px; line-height: 1.55; margin-top: 7px; }
 .preview-card { display: none; border-color: #a58a36; color: #8f7a3c; font-size: 10px; line-height: 1.5; }
 .preview-card.visible { display: block; }
+
+/* System diagnostics */
+#modeSystem .update-card { display: block; }
+.system-lead { color: #555; font-size: 10px; line-height: 1.55; margin-bottom: 10px; }
+.diagnostic-result { display: none; border: 1px solid #292929; padding: 11px 12px; margin: 10px 0; background: #050505; }
+.diagnostic-result.visible { display: block; }
+.diagnostic-result.good { border-color: #567000; }
+.diagnostic-result.warning { border-color: #806d2f; }
+.diagnostic-result.error { border-color: #733; }
+.diagnostic-result-title { color: #ddd; font-size: 12px; font-weight: bold; letter-spacing: .5px; }
+.diagnostic-result-meta { margin-top: 4px; color: #444; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
+.diagnostic-result-copy { margin-top: 8px; color: #777; font-size: 10px; line-height: 1.55; }
+.diagnostic-advice { margin-top: 8px; padding-top: 8px; border-top: 1px solid #202020; color: #999; font-size: 10px; line-height: 1.5; }
+.signal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 9px; }
+.signal-item { border: 1px solid #1d1d1d; padding: 7px 8px; background: #030303; }
+.signal-name { display: block; color: #444; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
+.signal-value { display: block; color: #777; font-size: 10px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.signal-value.ok { color: #9ab24b; }
+.signal-value.err { color: #a35e5e; }
+.conflict-item { padding: 8px 9px; border-left: 2px solid #555; background: #050505; margin-top: 6px; }
+.conflict-item.warning { border-left-color: #a58a36; }
+.conflict-item.error { border-left-color: #a34f4f; }
+.conflict-name { color: #aaa; font-size: 10px; }
+.conflict-detail { color: #4b4b4b; font-size: 9px; margin-top: 3px; line-height: 1.45; }
+.empty-state { color: #444; font-size: 10px; padding: 7px 0; }
+.dns-health-line { margin-top: 8px; padding-top: 8px; border-top: 1px solid #202020; color: #555; font-size: 10px; }
+.dns-health-line.good { color: #8da33f; }
+.dns-health-line.warning { color: #9c873f; }
+.update-version { color: #444; font-size: 10px; margin-bottom: 7px; }
 
 /* Telegram proxy card */
 .proxy-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
@@ -327,6 +356,7 @@ textarea:focus { border-color: #444; color: #aaa; }
     let rollbackRelease = null;
     let dnsRuntimeStatus = { enabled: false, profile: null };
     let uiPreviewMode = false;
+    let latestDiagnostic = null;
 
     const strPath       = __dirname;
     const excludeFile   = path.join(strPath, 'lists', 'list-exclude.txt');
@@ -460,8 +490,9 @@ textarea:focus { border-color: #444; color: #aaa; }
         if (message.action === 'auto-detect') { SetMode('bypass'); AutoDetect(); }
         if (message.action === 'show-telegram') SetMode('telegram');
         if (message.action === 'show-dns') SetMode('dns');
+        if (message.action === 'show-system') SetMode('system');
         if (message.action === 'update-lists') UpdateLists();
-        if (message.action === 'check-update') CheckAppUpdate(true);
+        if (message.action === 'check-update') { SetMode('system'); CheckAppUpdate(true); }
         if (message.action === 'set-autostart') ToggleAutostart(!!message.data);
         if (message.action === 'set-quiet-mode') ToggleQuietMode(!!message.data);
     });
@@ -473,6 +504,8 @@ textarea:focus { border-color: #444; color: #aaa; }
     ipcRenderer.on('app-version', (_event, data) => {
         const versionEl = document.getElementById('appVersion');
         if (versionEl && data.version) versionEl.textContent = 'v' + data.version.replace(/\.0$/, '');
+        const updateVersionEl = document.getElementById('updateCurrentVersion');
+        if (updateVersionEl && data.version) updateVersionEl.textContent = `Установлена версия v${data.version.replace(/\.0$/, '')}`;
         rollbackRelease = data.rollback || null;
         uiPreviewMode = !!data.preview;
         if (uiPreviewMode) {
@@ -578,12 +611,47 @@ textarea:focus { border-color: #444; color: #aaa; }
             chk.checked = !!status.enabled;
             dnsRuntimeStatus = status;
             UpdateDnsStatusUI();
+            UpdateDnsHealthLine(status.healthState, status.lastEndpoint || '');
             if (status.lastError) logMsg('[DNS] ' + status.lastError);
         } catch (error) {
             chk.checked = false;
             dnsRuntimeStatus = { enabled: false, profile: null, lastError: error.message };
             UpdateDnsStatusUI();
             logMsg('[!] Не удалось получить состояние защищённого DNS: ' + error.message);
+        }
+    }
+
+    ipcRenderer.on('dns:health-event', (_event, data) => {
+        if (!data) return;
+        if (data.state === 'restored') {
+            dnsRuntimeStatus = { enabled: false, profile: null, healthState: 'restored' };
+            document.getElementById('dohChk').checked = false;
+            UpdateDnsStatusUI();
+            logMsg('[DNS] ' + data.detail);
+        }
+        UpdateDnsHealthLine(data.state, data.detail || '');
+    });
+
+    function UpdateDnsHealthLine(state, detail) {
+        const line = document.getElementById('dnsHealthLine');
+        if (!line) return;
+        line.className = 'dns-health-line';
+        if (state === 'healthy') {
+            line.classList.add('good');
+            line.textContent = `Резерв DNS: работает${detail ? ' · ' + detail : ''}`;
+        } else if (state === 'degraded' || state === 'restoring') {
+            line.classList.add('warning');
+            line.textContent = `Резерв DNS: нестабильно${detail ? ' · ' + detail : ''}`;
+        } else if (state === 'restored') {
+            line.classList.add('warning');
+            line.textContent = 'DNS-профиль отключён, исходные настройки восстановлены.';
+        } else if (state === 'error') {
+            line.classList.add('warning');
+            line.textContent = detail || 'Ошибка контроля DNS.';
+        } else if (dnsRuntimeStatus.enabled) {
+            line.textContent = 'Резерв DNS: автоматическая проверка каждую минуту.';
+        } else {
+            line.textContent = 'Резерв DNS включится вместе с выбранным профилем.';
         }
     }
 
@@ -617,6 +685,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             chk.disabled = false;
             profileSel.disabled = false;
             UpdateDnsStatusUI();
+            UpdateDnsHealthLine(dnsRuntimeStatus.healthState, dnsRuntimeStatus.lastEndpoint || '');
         }
     }
 
@@ -1188,6 +1257,115 @@ textarea:focus { border-color: #444; color: #aaa; }
         alert('Отчет сохранён на рабочем столе!');
     }
 
+    function RenderSignal(id, result, successText) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.className = 'signal-value ' + (result && result.ok ? 'ok' : 'err');
+        if (result && result.ok) {
+            const suffix = result.status ? ` · HTTP ${result.status}` : (result.protocol ? ` · ${result.protocol}` : '');
+            el.textContent = `${successText}${suffix} · ${result.ms || 0} мс`;
+        } else {
+            el.textContent = (result && (result.error || result.code)) || 'не пройдено';
+        }
+    }
+
+    function RenderDiagnostic(result) {
+        latestDiagnostic = result;
+        const box = document.getElementById('diagnosticResult');
+        const diagnosis = result.diagnosis;
+        box.className = `diagnostic-result visible ${diagnosis.level || 'warning'}`;
+        document.getElementById('diagnosticTitle').textContent = diagnosis.title;
+        document.getElementById('diagnosticMeta').textContent = `${result.target.label} · уверенность: ${diagnosis.confidence}`;
+        document.getElementById('diagnosticCopy').textContent = diagnosis.detail;
+        document.getElementById('diagnosticAdvice').textContent = diagnosis.advice;
+
+        RenderSignal('signalSystemDns', result.evidence.systemDns, `ОК · ${(result.evidence.systemDns.addresses || []).slice(0, 2).join(', ')}`);
+        RenderSignal('signalPublicDns', result.evidence.publicDns, `ОК · ${(result.evidence.publicDns.addresses || []).slice(0, 2).join(', ')}`);
+        RenderSignal('signalTcp', result.evidence.tcp, 'соединение');
+        RenderSignal('signalTls', result.evidence.tls, 'handshake');
+        RenderSignal('signalHttps', result.evidence.https, 'ответ получен');
+        const controlsOk = result.evidence.controls.filter((item) => item.ok && item.status > 0 && item.status < 500).length;
+        const controlsEl = document.getElementById('signalInternet');
+        controlsEl.className = 'signal-value ' + (controlsOk ? 'ok' : 'err');
+        controlsEl.textContent = `${controlsOk}/${result.evidence.controls.length} контрольных сайтов`;
+
+        const list = document.getElementById('conflictList');
+        list.innerHTML = '';
+        if (!result.conflicts.length) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            empty.textContent = 'Явных конфликтов не найдено.';
+            list.appendChild(empty);
+        } else {
+            result.conflicts.forEach((conflict) => {
+                const item = document.createElement('div');
+                item.className = `conflict-item ${conflict.level || 'warning'}`;
+                const title = document.createElement('div');
+                title.className = 'conflict-name';
+                title.textContent = conflict.title;
+                const detail = document.createElement('div');
+                detail.className = 'conflict-detail';
+                detail.textContent = conflict.detail;
+                item.append(title, detail);
+                list.appendChild(item);
+            });
+        }
+        document.getElementById('exportDiagnosticBtn').disabled = false;
+    }
+
+    async function RunSystemDiagnostics() {
+        const button = document.getElementById('runDiagnosticBtn');
+        const target = document.getElementById('diagnosticTarget').value;
+        button.disabled = true;
+        button.textContent = 'ПРОВЕРЯЕМ...';
+        document.getElementById('diagnosticResult').className = 'diagnostic-result visible';
+        document.getElementById('diagnosticTitle').textContent = 'Проверяем сеть и сервис...';
+        document.getElementById('diagnosticMeta').textContent = 'DNS → ИНТЕРНЕТ → TCP → TLS → HTTPS → КОНФЛИКТЫ';
+        document.getElementById('diagnosticCopy').textContent = 'Обычно это занимает несколько секунд.';
+        document.getElementById('diagnosticAdvice').textContent = '';
+        try {
+            const response = await ipcRenderer.invoke('diagnostics:run', { target, engineRunning: isRunning });
+            if (!response.ok) throw new Error(response.error || 'диагностика не завершена');
+            RenderDiagnostic(response.result);
+        } catch (error) {
+            const box = document.getElementById('diagnosticResult');
+            box.className = 'diagnostic-result visible error';
+            document.getElementById('diagnosticTitle').textContent = 'Диагностика не завершена';
+            document.getElementById('diagnosticMeta').textContent = 'ОШИБКА';
+            document.getElementById('diagnosticCopy').textContent = error.message;
+            document.getElementById('diagnosticAdvice').textContent = 'Повторите проверку или перезапустите приложение.';
+        } finally {
+            button.disabled = false;
+            button.textContent = 'ЗАПУСТИТЬ ДИАГНОСТИКУ';
+        }
+    }
+
+    function ExportSystemReport() {
+        if (!latestDiagnostic) return;
+        const desktopPath = path.join(os.homedir(), 'Desktop', 'Zapret_Diagnostics.txt');
+        const d = latestDiagnostic;
+        const report = [
+            '=== ZAPRET ELECTRON · ДИАГНОСТИКА ===',
+            `Дата: ${new Date(d.checkedAt).toLocaleString()}`,
+            `Сервис: ${d.target.label} (${d.target.host})`,
+            `Результат: ${d.diagnosis.title}`,
+            `Уверенность: ${d.diagnosis.confidence}`,
+            '',
+            d.diagnosis.detail,
+            `Рекомендация: ${d.diagnosis.advice}`,
+            '',
+            '--- КОНФЛИКТЫ ---',
+            ...(d.conflicts.length ? d.conflicts.map((item) => `${item.title}: ${item.detail}`) : ['Не найдены']),
+            '',
+            '--- ТЕХНИЧЕСКИЕ СИГНАЛЫ ---',
+            JSON.stringify(d.evidence, null, 2),
+            '',
+            'Отчёт не содержит паролей, прокси-секретов и содержимого браузера.'
+        ].join('\r\n');
+        fs.writeFileSync(desktopPath, report, 'utf8');
+        alert('Диагностический отчёт сохранён на рабочем столе.');
+    }
+
     function setUpdateCardVisible(visible) {
         document.getElementById('updateCard').classList.toggle('visible', visible);
     }
@@ -1249,13 +1427,15 @@ textarea:focus { border-color: #444; color: #aaa; }
     });
 
     function SetMode(mode) {
-        if (!['bypass', 'dns', 'telegram'].includes(mode)) mode = 'bypass';
+        if (!['bypass', 'dns', 'system', 'telegram'].includes(mode)) mode = 'bypass';
         localStorage.setItem('appMode', mode);
         document.getElementById('modeBypass').style.display   = (mode === 'bypass')   ? '' : 'none';
         document.getElementById('modeDns').style.display      = (mode === 'dns')      ? '' : 'none';
+        document.getElementById('modeSystem').style.display   = (mode === 'system')   ? '' : 'none';
         document.getElementById('modeTelegram').style.display = (mode === 'telegram') ? '' : 'none';
         document.getElementById('modeBtnBypass').className   = 'mode-btn' + (mode === 'bypass'   ? ' active' : '');
         document.getElementById('modeBtnDns').className      = 'mode-btn' + (mode === 'dns'      ? ' active' : '');
+        document.getElementById('modeBtnSystem').className   = 'mode-btn' + (mode === 'system'   ? ' active' : '');
         document.getElementById('modeBtnTelegram').className = 'mode-btn' + (mode === 'telegram' ? ' active' : '');
         if (mode === 'dns') UpdateDnsStatusUI();
     }
@@ -1655,21 +1835,12 @@ textarea:focus { border-color: #444; color: #aaa; }
 <div class="mode-toggle">
     <button id="modeBtnBypass" class="mode-btn active" onclick="SetMode('bypass')">◼ ОБХОД</button>
     <button id="modeBtnDns" class="mode-btn" onclick="SetMode('dns')">◻ DNS</button>
-    <button id="modeBtnTelegram" class="mode-btn" onclick="SetMode('telegram')">◻ TELEGRAM</button>
+    <button id="modeBtnTelegram" class="mode-btn" onclick="SetMode('telegram')">◻ TG</button>
+    <button id="modeBtnSystem" class="mode-btn" onclick="SetMode('system')">◻ СИСТЕМА</button>
 </div>
 
 <div id="previewCard" class="card preview-card">
     ПРЕДПРОСМОТР · Старый Zapret продолжает работать. Запуск обхода и изменение DNS в этом окне временно заблокированы.
-</div>
-
-<div id="updateCard" class="card update-card">
-    <div class="card-title">Обновление приложения</div>
-    <div id="updateStatus" class="update-status">Проверка ещё не выполнялась.</div>
-    <div class="update-actions">
-        <button class="btn btn-ghost" onclick="CheckAppUpdate(true)">ПРОВЕРИТЬ</button>
-        <button id="installUpdateBtn" class="btn btn-primary" style="display:none" onclick="InstallAppUpdate()">УСТАНОВИТЬ</button>
-        <button id="rollbackBtn" class="btn btn-ghost" style="display:none" onclick="RollbackAppUpdate()">ОТКАТИТЬСЯ</button>
-    </div>
 </div>
 
 <div id="modeBypass">
@@ -1816,6 +1987,7 @@ textarea:focus { border-color: #444; color: #aaa; }
     </label>
     <div id="dnsProfileHint" class="proxy-hint"></div>
     <div class="dns-disclaimer">При выключении или полном выходе приложение восстановит прежний DNS. Закрытие окна крестиком только сворачивает приложение в трей.</div>
+    <div id="dnsHealthLine" class="dns-health-line">Резерв DNS включится вместе с выбранным профилем.</div>
 </div>
 
 <div class="card">
@@ -1830,6 +2002,58 @@ textarea:focus { border-color: #444; color: #aaa; }
     <div class="dns-row">chatgpt.com <span id="dnsChatGPT">—</span></div>
 </div>
 </div><!-- /modeDns -->
+
+<div id="modeSystem" style="display:none">
+<div class="card">
+    <div class="card-title">Диагностика подключения</div>
+    <div class="system-lead">Проверяет интернет, системный и публичный DNS, TCP, TLS/HTTPS, возможную фильтрацию провайдера и конфликты с другими сетевыми программами.</div>
+    <div class="select-wrap">
+        <select id="diagnosticTarget">
+            <option value="youtube">YouTube</option>
+            <option value="discord">Discord</option>
+            <option value="telegram">Telegram</option>
+            <option value="chatgpt">ChatGPT</option>
+            <option value="gemini">Gemini</option>
+        </select>
+    </div>
+    <div class="btn-row" style="margin-top:8px;margin-bottom:0">
+        <button id="runDiagnosticBtn" class="btn btn-primary" onclick="RunSystemDiagnostics()">ЗАПУСТИТЬ ДИАГНОСТИКУ</button>
+        <button id="exportDiagnosticBtn" class="btn btn-ghost" onclick="ExportSystemReport()" disabled>СОХРАНИТЬ ОТЧЁТ</button>
+    </div>
+</div>
+
+<div id="diagnosticResult" class="diagnostic-result">
+    <div id="diagnosticTitle" class="diagnostic-result-title">Диагностика ещё не запускалась</div>
+    <div id="diagnosticMeta" class="diagnostic-result-meta"></div>
+    <div id="diagnosticCopy" class="diagnostic-result-copy"></div>
+    <div id="diagnosticAdvice" class="diagnostic-advice"></div>
+    <div class="signal-grid">
+        <div class="signal-item"><span class="signal-name">Интернет</span><span id="signalInternet" class="signal-value">—</span></div>
+        <div class="signal-item"><span class="signal-name">Системный DNS</span><span id="signalSystemDns" class="signal-value">—</span></div>
+        <div class="signal-item"><span class="signal-name">Публичный DoH</span><span id="signalPublicDns" class="signal-value">—</span></div>
+        <div class="signal-item"><span class="signal-name">TCP 443</span><span id="signalTcp" class="signal-value">—</span></div>
+        <div class="signal-item"><span class="signal-name">TLS / SNI</span><span id="signalTls" class="signal-value">—</span></div>
+        <div class="signal-item"><span class="signal-name">HTTPS</span><span id="signalHttps" class="signal-value">—</span></div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-title">Конфликты</div>
+    <div id="conflictList" class="empty-state">Запустите диагностику, чтобы проверить VPN, системный прокси, DNS-порт, WinDivert и другие экземпляры обхода.</div>
+</div>
+
+<div id="updateCard" class="card update-card visible">
+    <div class="card-title">Обновление приложения</div>
+    <div id="updateCurrentVersion" class="update-version">Определяем установленную версию...</div>
+    <div id="updateStatus" class="update-status">Обновления проверяются внутри приложения — открывать GitHub не требуется.</div>
+    <div class="update-actions">
+        <button class="btn btn-ghost" onclick="CheckAppUpdate(true)">ПРОВЕРИТЬ</button>
+        <button id="installUpdateBtn" class="btn btn-primary" style="display:none" onclick="InstallAppUpdate()">СКАЧАТЬ И УСТАНОВИТЬ</button>
+        <button id="rollbackBtn" class="btn btn-ghost" style="display:none" onclick="RollbackAppUpdate()">ОТКАТИТЬСЯ</button>
+    </div>
+    <div class="dns-disclaimer">Установщик загружается автоматически, проверяется по SHA-256 и запускается без перехода в браузер.</div>
+</div>
+</div><!-- /modeSystem -->
 
 <div id="modeTelegram" style="display:none">
 <div class="card">
