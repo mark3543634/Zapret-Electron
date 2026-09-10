@@ -38,6 +38,15 @@ let dohStats = { queries: 0, replies: 0, lastError: '', lastEndpoint: '' };
 let dnsHealthTimer = null;
 let dnsHealthFailures = 0;
 let dnsHealthState = 'idle';
+let tgWsProcess = null;
+let tgWsStartedAt = 0;
+let tgWsLastError = '';
+let tgWsRecentLog = [];
+let tgWsStopping = false;
+
+const TG_WS_VERSION = '1.10.2';
+const TG_WS_PORT = 1443;
+const TG_WS_HOST = '127.0.0.1';
 
 const DOH_ENDPOINTS = [
   { host: '1.1.1.1', servername: 'cloudflare-dns.com', label: 'Cloudflare 1' },
@@ -55,6 +64,207 @@ const updaterStatePath = () => path.join(app.getPath('userData'), 'updater-state
 const dohStatePath = () => path.join(app.getPath('userData'), 'doh-state.json');
 const dnsWatchdogPath = () => path.join(app.getPath('userData'), 'dns-recovery-watchdog.ps1');
 const dnsRecoveryLogPath = () => path.join(app.getPath('userData'), 'dns-recovery.log');
+const tgWsStatePath = () => path.join(app.getPath('userData'), 'tg-ws-proxy-state.json');
+const tgWsLogPath = () => path.join(app.getPath('userData'), 'tg-ws-proxy.log');
+const tgWsBinaryPath = () => path.join(__dirname, 'bin', 'TgWsProxy-headless.exe');
+
+function readTgWsState() {
+  try {
+    const state = JSON.parse(fs.readFileSync(tgWsStatePath(), 'utf8'));
+    if (!/^[a-f0-9]{32}$/i.test(String(state.secret || ''))) state.secret = crypto.randomBytes(16).toString('hex');
+    return state;
+  } catch (_) {
+    return { secret: crypto.randomBytes(16).toString('hex'), lastPid: null };
+  }
+}
+
+function writeTgWsState(state) {
+  fs.mkdirSync(path.dirname(tgWsStatePath()), { recursive: true });
+  fs.writeFileSync(tgWsStatePath(), JSON.stringify(state, null, 2), 'utf8');
+}
+
+function ensureTgWsState() {
+  const state = readTgWsState();
+  writeTgWsState(state);
+  return state;
+}
+
+function rememberTgWsPid(pid) {
+  const state = ensureTgWsState();
+  state.lastPid = Number.isInteger(pid) && pid > 0 ? pid : null;
+  writeTgWsState(state);
+}
+
+function cleanupStaleTgWsProxy() {
+  const state = ensureTgWsState();
+  const pid = Number(state.lastPid);
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  try {
+    const expected = tgWsBinaryPath();
+    const executable = runPowerShell(`$p=Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}' -ErrorAction SilentlyContinue; if($p){[string]$p.ExecutablePath}`);
+    if (executable && path.resolve(executable).toLowerCase() === path.resolve(expected).toLowerCase()) {
+      spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    }
+  } catch (_) {}
+  state.lastPid = null;
+  writeTgWsState(state);
+}
+
+function isTgWsProcessAlive() {
+  return !!(tgWsProcess && tgWsProcess.exitCode === null && !tgWsProcess.killed);
+}
+
+function canConnectTcp(host, port, timeoutMs = 800) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host, port });
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+  });
+}
+
+function redactTgWsLog(value) {
+  const secret = String(readTgWsState().secret || '');
+  return String(value || '')
+    .replace(secret, '[secret]')
+    .replace(/([a-z0-9-]+\.)+[a-z]{2,}/gi, '[domain]')
+    .trim();
+}
+
+function pushTgWsLog(chunk) {
+  for (const rawLine of String(chunk || '').split(/\r?\n/)) {
+    const line = redactTgWsLog(rawLine);
+    if (!line) continue;
+    tgWsRecentLog.push(line);
+  }
+  tgWsRecentLog = tgWsRecentLog.slice(-40);
+}
+
+async function getTgWsStatus() {
+  const processAlive = isTgWsProcessAlive();
+  const listening = await canConnectTcp(TG_WS_HOST, TG_WS_PORT);
+  return {
+    available: fs.existsSync(tgWsBinaryPath()),
+    running: processAlive && listening,
+    starting: processAlive && !listening,
+    portConflict: !processAlive && listening,
+    host: TG_WS_HOST,
+    port: TG_WS_PORT,
+    version: TG_WS_VERSION,
+    startedAt: tgWsStartedAt || null,
+    error: tgWsLastError,
+    log: tgWsRecentLog.slice(-12)
+  };
+}
+
+async function publishTgWsStatus() {
+  sendToRenderer('tg-ws:status', await getTgWsStatus());
+}
+
+async function waitForTgWsListener(timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && isTgWsProcessAlive()) {
+    if (await canConnectTcp(TG_WS_HOST, TG_WS_PORT, 500)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return false;
+}
+
+async function startTgWsProxy() {
+  if (previewMode) throw new Error('В режиме предпросмотра локальный прокси не запускается');
+  if (!fs.existsSync(tgWsBinaryPath())) throw new Error('Модуль TG WS Proxy отсутствует в сборке');
+  if (isTgWsProcessAlive()) return getTgWsStatus();
+  if (await canConnectTcp(TG_WS_HOST, TG_WS_PORT)) {
+    throw new Error(`Порт ${TG_WS_PORT} уже занят другой программой`);
+  }
+
+  const state = ensureTgWsState();
+  tgWsLastError = '';
+  tgWsRecentLog = [];
+  tgWsStopping = false;
+  tgWsStartedAt = Date.now();
+  tgWsProcess = spawn(tgWsBinaryPath(), [
+    '--host', TG_WS_HOST,
+    '--port', String(TG_WS_PORT),
+    '--secret', state.secret,
+    '--pool-size', '4',
+    '--log-file', tgWsLogPath(),
+    '--log-max-mb', '2',
+    '--log-backups', '1'
+  ], {
+    cwd: path.dirname(tgWsBinaryPath()),
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  rememberTgWsPid(tgWsProcess.pid);
+  tgWsProcess.stdout.on('data', pushTgWsLog);
+  tgWsProcess.stderr.on('data', pushTgWsLog);
+  tgWsProcess.once('error', (error) => {
+    tgWsLastError = error.message;
+    publishTgWsStatus();
+  });
+  tgWsProcess.once('exit', (code) => {
+    const wasStopping = tgWsStopping;
+    tgWsProcess = null;
+    tgWsStartedAt = 0;
+    rememberTgWsPid(null);
+    if (!wasStopping && code !== 0) tgWsLastError = `Локальный прокси завершился с кодом ${code}`;
+    publishTgWsStatus();
+  });
+
+  if (!await waitForTgWsListener()) {
+    const detail = tgWsRecentLog.slice(-1)[0];
+    await stopTgWsProxy();
+    throw new Error(detail || 'Локальный прокси не успел запуститься');
+  }
+  await publishTgWsStatus();
+  return getTgWsStatus();
+}
+
+async function stopTgWsProxy() {
+  const child = tgWsProcess;
+  if (!child) return getTgWsStatus();
+  tgWsStopping = true;
+  const pid = child.pid;
+  if (process.platform === 'win32' && Number.isInteger(pid)) {
+    spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+  } else {
+    try { child.kill(); } catch (_) {}
+  }
+  await new Promise((resolve) => {
+    if (child.exitCode !== null) return resolve();
+    const timeout = setTimeout(resolve, 1500);
+    child.once('exit', () => { clearTimeout(timeout); resolve(); });
+  });
+  if (child.exitCode === null && Number.isInteger(pid)) {
+    spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+  }
+  tgWsProcess = null;
+  tgWsStartedAt = 0;
+  tgWsLastError = '';
+  rememberTgWsPid(null);
+  await publishTgWsStatus();
+  return getTgWsStatus();
+}
+
+function stopTgWsProxySync() {
+  const pid = tgWsProcess && tgWsProcess.pid;
+  tgWsStopping = true;
+  if (Number.isInteger(pid) && pid > 0) {
+    spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+  }
+  tgWsProcess = null;
+  tgWsStartedAt = 0;
+  try { rememberTgWsPid(null); } catch (_) {}
+}
 function runPowerShell(command) {
   const result = spawnSync('powershell', [
     '-NoProfile', '-NonInteractive', '-Command',
@@ -1102,6 +1312,7 @@ function createWindow () {
       rollback: readUpdaterState().previousRelease || null,
       preview: previewMode
     });
+    publishTgWsStatus();
   });
 
   // Прячем в трей при нажатии на крестик
@@ -1119,6 +1330,8 @@ function createWindow () {
 
 app.whenReady().then(async () => {
   if (!ownsSingleInstanceLock) return;
+
+  if (!previewMode && !testInstanceMode) cleanupStaleTgWsProxy();
 
   if (!previewMode) {
     try { await recoverDohState(); }
@@ -1189,6 +1402,27 @@ ipcMain.on('rollback-update', async () => {
 });
 
 ipcMain.handle('doh:get-status', () => getDohStatus());
+ipcMain.handle('tg-ws:get-status', () => getTgWsStatus());
+ipcMain.handle('tg-ws:start', async () => {
+  try { return { ok: true, status: await startTgWsProxy() }; }
+  catch (error) { tgWsLastError = error.message; return { ok: false, error: error.message, status: await getTgWsStatus() }; }
+});
+ipcMain.handle('tg-ws:stop', async () => {
+  try { return { ok: true, status: await stopTgWsProxy() }; }
+  catch (error) { return { ok: false, error: error.message, status: await getTgWsStatus() }; }
+});
+ipcMain.handle('tg-ws:connect', async () => {
+  try {
+    const status = await getTgWsStatus();
+    if (!status.running) throw new Error('Сначала запустите локальный прокси');
+    const secret = ensureTgWsState().secret;
+    const url = `tg://proxy?server=${encodeURIComponent(status.host)}&port=${status.port}&secret=${encodeURIComponent(`dd${secret}`)}`;
+    await shell.openExternal(url);
+    return { ok: true, status };
+  } catch (error) {
+    return { ok: false, error: error.message, status: await getTgWsStatus() };
+  }
+});
 ipcMain.handle('diagnostics:run', async (_event, request) => {
   try {
     const target = request && request.target ? String(request.target) : 'youtube';
@@ -1236,6 +1470,7 @@ app.on('before-quit', (event) => {
     clearTimeout(trayClickTimer);
     trayClickTimer = null;
   }
+  stopTgWsProxySync();
   globalShortcut.unregisterAll();
   if (!previewMode) cleanupEngine(); // Не трогаем рабочий экземпляр из окна предпросмотра.
   if (tray) {

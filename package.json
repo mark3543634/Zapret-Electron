@@ -1,11 +1,11 @@
 {
   "name": "zapret-pro",
   "version": "6.9.0",
-  "description": "GUI для обхода DPI-блокировок на Windows с отдельным DNS, диагностикой сети и безопасными обновлениями",
+  "description": "GUI для обхода DPI-блокировок на Windows с локальным Telegram WS, отдельным DNS, диагностикой сети и безопасными обновлениями",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-packager . ZapretPro --executable-name=\"Zapret Electron\" --platform=win32 --arch=x64 --icon=icon.ico --out=out --overwrite --ignore=\"(^/out(?:$|-)|^/ZapretPro-win32-x64$|^/releases$|^/icon-minimal.*)\" && node set-admin-manifest.js"
+    "build": "electron-packager . ZapretPro --executable-name=\"Zapret Electron\" --platform=win32 --arch=x64 --icon=icon.ico --out=out --overwrite --ignore=\"(^/out(?:$|-)|^/ZapretPro-win32-x64$|^/releases$|^/tools$|^/vendor$|^/icon-minimal.*)\" && node set-admin-manifest.js"
   },
   "devDependencies": {
     "electron": "^28.0.0",

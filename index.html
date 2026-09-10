@@ -334,6 +334,16 @@ textarea:focus { border-color: #444; color: #aaa; }
 .proxy-hint { margin-top: 8px; font-size: 11px; color: #555; line-height: 1.4; }
 .proxy-pool { margin-top: 10px; padding-top: 9px; border-top: 1px solid #1d1d1d; }
 .proxy-pool-title { font-size: 9px; color: #444; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; }
+.tgws-card { border-color: #3d4a17; background: linear-gradient(145deg, #090b03 0%, #050505 68%); }
+.tgws-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tgws-badge { border: 1px solid #566d17; color: #a9cb43; padding: 3px 6px; font-size: 8px; letter-spacing: 1px; text-transform: uppercase; }
+.tgws-state-line { display: flex; align-items: center; gap: 7px; margin-top: 12px; color: #777; font-size: 11px; }
+.tgws-dot { width: 7px; height: 7px; border-radius: 50%; background: #555; box-shadow: 0 0 0 3px rgba(100,100,100,.08); }
+.tgws-dot.good { background: #c8ff00; box-shadow: 0 0 8px rgba(200,255,0,.45); }
+.tgws-dot.warning { background: #c49d3b; box-shadow: 0 0 8px rgba(196,157,59,.35); }
+.tgws-dot.error { background: #d04f4f; box-shadow: 0 0 8px rgba(208,79,79,.35); }
+.tgws-meta { margin-left: auto; color: #444; font-size: 9px; letter-spacing: .8px; }
+.tgws-detail { margin-top: 8px; min-height: 15px; color: #555; font-size: 10px; line-height: 1.5; }
 .update-card { display: none; border-color: #303030; }
 .update-card.visible { display: block; }
 .update-status { color: #777; font-size: 11px; line-height: 1.5; white-space: pre-line; }
@@ -363,6 +373,8 @@ textarea:focus { border-color: #444; color: #aaa; }
     let listRefreshInterval = null;
     let proxySearchRunning = false;
     let proxyHealthInterval = null;
+    let tgWsHealthInterval = null;
+    let tgWsRuntimeStatus = { available: false, running: false, starting: false };
     let currentTrayStatus = 'stopped';
     let latestPingText = '---';
     let latestUpdate = null;
@@ -633,6 +645,8 @@ textarea:focus { border-color: #444; color: #aaa; }
         }
     });
 
+    ipcRenderer.on('tg-ws:status', (_event, status) => RenderTgWsStatus(status));
+
     async function DetectHardwareCompatibility() {
         const hint = document.getElementById('compatibilityHint');
         try {
@@ -713,6 +727,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 
         ProxyLoad();
         ProxyPoolLoad();
+        TgWsRefreshStatus();
         SetMode(localStorage.getItem('appMode') || 'bypass');
 
         const backgroundListRefresh = async () => {
@@ -730,6 +745,9 @@ textarea:focus { border-color: #444; color: #aaa; }
         setTimeout(() => ProxyHealthCheck(false), 2 * 60 * 1000);
         if (!proxyHealthInterval) {
             proxyHealthInterval = setInterval(() => ProxyHealthCheck(false), 10 * 60 * 1000);
+        }
+        if (!tgWsHealthInterval) {
+            tgWsHealthInterval = setInterval(TgWsRefreshStatus, 10 * 1000);
         }
     }
 
@@ -1655,6 +1673,94 @@ textarea:focus { border-color: #444; color: #aaa; }
         document.getElementById('modeBtnSystem').className   = 'mode-btn' + (mode === 'system'   ? ' active' : '');
         document.getElementById('modeBtnTelegram').className = 'mode-btn' + (mode === 'telegram' ? ' active' : '');
         if (mode === 'dns') UpdateDnsStatusUI();
+        if (mode === 'telegram') TgWsRefreshStatus();
+    }
+
+    function RenderTgWsStatus(status) {
+        if (!status) return;
+        tgWsRuntimeStatus = status;
+        const dot = document.getElementById('tgWsDot');
+        const state = document.getElementById('tgWsState');
+        const meta = document.getElementById('tgWsMeta');
+        const detail = document.getElementById('tgWsDetail');
+        const toggle = document.getElementById('tgWsToggleBtn');
+        const connect = document.getElementById('tgWsConnectBtn');
+        if (!dot || !state || !toggle || !connect) return;
+
+        dot.className = 'tgws-dot';
+        toggle.disabled = false;
+        connect.disabled = !status.running;
+        meta.textContent = `v${status.version || '?'} · ${status.host || '127.0.0.1'}:${status.port || 1443}`;
+
+        if (!status.available) {
+            dot.classList.add('error');
+            state.textContent = 'Модуль отсутствует в сборке';
+            detail.textContent = 'Переустановите полную версию приложения.';
+            toggle.textContent = 'МОДУЛЬ НЕДОСТУПЕН';
+            toggle.disabled = true;
+        } else if (status.portConflict) {
+            dot.classList.add('error');
+            state.textContent = `Порт ${status.port} занят`;
+            detail.textContent = 'Закройте другую программу, использующую этот порт, и повторите запуск.';
+            toggle.textContent = 'ПОВТОРИТЬ ЗАПУСК';
+        } else if (status.starting) {
+            dot.classList.add('warning');
+            state.textContent = 'Локальный прокси запускается…';
+            detail.textContent = 'Подготавливаем защищённый маршрут до Telegram.';
+            toggle.textContent = 'ЗАПУСК…';
+            toggle.disabled = true;
+        } else if (status.running) {
+            dot.classList.add('good');
+            state.textContent = 'Локальный прокси работает';
+            const recent = Array.isArray(status.log) ? status.log.join(' ') : '';
+            if (/TCP fallback/i.test(recent)) detail.textContent = 'Telegram использует прямой резервный маршрут TCP.';
+            else if (/CF proxy|CF worker/i.test(recent)) detail.textContent = 'Telegram использует резервный маршрут Cloudflare.';
+            else if (/WS session|using WS|pool hit/i.test(recent)) detail.textContent = 'Telegram передаёт данные через WebSocket.';
+            else detail.textContent = 'Нажмите «Подключить Telegram» и подтвердите использование прокси.';
+            toggle.textContent = 'ОСТАНОВИТЬ';
+        } else {
+            if (status.error) dot.classList.add('error');
+            state.textContent = status.error ? 'Не удалось запустить' : 'Локальный прокси остановлен';
+            detail.textContent = status.error || 'Запускается только вручную и выключается вместе с приложением.';
+            toggle.textContent = 'ЗАПУСТИТЬ И ПОДКЛЮЧИТЬ';
+        }
+    }
+
+    async function TgWsRefreshStatus() {
+        try { RenderTgWsStatus(await ipcRenderer.invoke('tg-ws:get-status')); }
+        catch (error) { RenderTgWsStatus({ available: false, error: error.message, version: '?' }); }
+    }
+
+    async function TgWsToggle() {
+        const toggle = document.getElementById('tgWsToggleBtn');
+        toggle.disabled = true;
+        if (tgWsRuntimeStatus.running || tgWsRuntimeStatus.starting) {
+            const response = await ipcRenderer.invoke('tg-ws:stop');
+            RenderTgWsStatus(response.status);
+            if (!response.ok) notifyUser('Не удалось остановить локальный Telegram-прокси');
+            return;
+        }
+
+        RenderTgWsStatus({ ...tgWsRuntimeStatus, starting: true, error: '' });
+        const response = await ipcRenderer.invoke('tg-ws:start');
+        RenderTgWsStatus(response.status);
+        if (!response.ok) {
+            notifyUser('Не удалось запустить локальный Telegram-прокси');
+            return;
+        }
+        await TgWsConnect();
+    }
+
+    async function TgWsConnect() {
+        const response = await ipcRenderer.invoke('tg-ws:connect');
+        if (response.status) RenderTgWsStatus(response.status);
+        const detail = document.getElementById('tgWsDetail');
+        if (response.ok) {
+            detail.textContent = 'Telegram открыт — подтвердите подключение к локальному прокси.';
+            notifyUser('Telegram открыт для подключения к локальному прокси');
+        } else {
+            detail.textContent = response.error || 'Не удалось открыть Telegram.';
+        }
     }
 
     function ProxyTypeChange() {
@@ -1756,6 +1862,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 
     async function ProxyHealthCheck(manual) {
         if (proxySearchRunning) return;
+        if (!manual && tgWsRuntimeStatus.running) return;
         const status = document.getElementById('proxyStatus');
         const current = {
             server: document.getElementById('proxyServer').value.trim(),
@@ -2274,8 +2381,28 @@ textarea:focus { border-color: #444; color: #aaa; }
 </div><!-- /modeSystem -->
 
 <div id="modeTelegram" style="display:none">
+<div class="card tgws-card">
+    <div class="tgws-head">
+        <div class="card-title" style="margin-bottom:0">Локальный Telegram WS</div>
+        <div class="tgws-badge">Рекомендуется</div>
+    </div>
+    <div class="proxy-hint">Стабильный локальный прокси без случайных публичных серверов. Трафик Telegram направляется через WebSocket/TLS, а при недоступности используется резервный маршрут.</div>
+    <div class="tgws-state-line">
+        <span id="tgWsDot" class="tgws-dot"></span>
+        <span id="tgWsState">Проверяем модуль…</span>
+        <span id="tgWsMeta" class="tgws-meta">v1.10.2 · 127.0.0.1:1443</span>
+    </div>
+    <div id="tgWsDetail" class="tgws-detail">Получаем состояние локального прокси.</div>
+    <div class="btn-row" style="margin-top:10px">
+        <button id="tgWsToggleBtn" class="btn btn-primary" onclick="TgWsToggle()">ЗАПУСТИТЬ И ПОДКЛЮЧИТЬ</button>
+        <button id="tgWsConnectBtn" class="btn btn-ghost" onclick="TgWsConnect()" disabled>ПОДКЛЮЧИТЬ TELEGRAM</button>
+    </div>
+    <div class="dns-disclaimer">Запускается только вручную и останавливается при выходе из Zapret Electron. Если его остановить, Telegram может сохранить локальный прокси в настройках.</div>
+</div>
+
 <div class="card">
-    <div class="card-title">Прокси Telegram</div>
+    <div class="card-title">Публичные прокси · резерв</div>
+    <div class="proxy-hint" style="margin-bottom:10px">Используйте, если локальный WS-маршрут не работает в вашей сети или прокси нужен другому устройству.</div>
     <div class="proxy-row">
         <span class="proxy-label">Тип</span>
         <select id="proxyType" class="proxy-input" onchange="ProxyTypeChange()">
