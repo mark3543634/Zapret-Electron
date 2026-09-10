@@ -607,11 +607,24 @@ function collectSystemSignals() {
       "$adapters=@(Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object {[pscustomobject]@{Name=[string]$_.Name; Description=[string]$_.InterfaceDescription; Index=[int]$_.ifIndex; Hardware=[bool]$_.HardwareInterface}})",
       "$dns=@(Get-DnsClientServerAddress -AddressFamily IPv4 | Where-Object {$_.ServerAddresses.Count -gt 0} | ForEach-Object {[pscustomobject]@{Name=[string]$_.InterfaceAlias; Index=[int]$_.InterfaceIndex; Servers=@($_.ServerAddresses)}})",
       "$ports=@(Get-NetUDPEndpoint -LocalPort 53 -ErrorAction SilentlyContinue | ForEach-Object {$p=Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; [pscustomobject]@{Address=[string]$_.LocalAddress; Pid=[int]$_.OwningProcess; Process=[string]$p.ProcessName}})",
-      "$reg=Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue",
+      "$reg=Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings' -ErrorAction SilentlyContinue",
       "$proxy=[pscustomobject]@{Enabled=([int]$reg.ProxyEnable -eq 1); Server=[string]$reg.ProxyServer; AutoConfig=[string]$reg.AutoConfigURL}",
       "$winws=@(Get-CimInstance Win32_Process -Filter \"Name='winws.exe'\" -ErrorAction SilentlyContinue | ForEach-Object {[pscustomobject]@{Pid=[int]$_.ProcessId; Path=[string]$_.ExecutablePath}})",
       "$services=@(Get-Service -Name 'WinDivert*' -ErrorAction SilentlyContinue | ForEach-Object {[pscustomobject]@{Name=[string]$_.Name; Status=[string]$_.Status}})",
-      "[pscustomobject]@{Adapters=$adapters; Dns=$dns; Port53=$ports; Proxy=$proxy; Winws=$winws; WinDivert=$services} | ConvertTo-Json -Compress -Depth 5"
+      "$computer=Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue",
+      "$os=Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue",
+      "$nativeArch=[string](Get-ItemProperty -LiteralPath 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment' -ErrorAction SilentlyContinue).PROCESSOR_ARCHITECTURE",
+      "$computerInfo=[pscustomobject]@{Manufacturer=[string]$computer.Manufacturer; Model=[string]$computer.Model; SystemType=[string]$computer.SystemType; OsArchitecture=[string]$os.OSArchitecture; NativeArchitecture=$nativeArch}",
+      "$deviceGuard=Get-CimInstance -Namespace 'root\\Microsoft\\Windows\\DeviceGuard' -ClassName Win32_DeviceGuard -ErrorAction SilentlyContinue",
+      "$guardInfo=if($deviceGuard){[pscustomobject]@{VbsStatus=[int]$deviceGuard.VirtualizationBasedSecurityStatus; Configured=@($deviceGuard.SecurityServicesConfigured); Running=@($deviceGuard.SecurityServicesRunning)}}else{$null}",
+      "$uninstallPaths=@('HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*')",
+      "$hpPattern='(?i)HP\\s*(Wolf|Sure|Velocity|Security|Connection Optimizer|Client Security)|Bromium'",
+      "$hpSoftware=@(Get-ItemProperty -Path $uninstallPaths -ErrorAction SilentlyContinue | Where-Object {[string]$_.DisplayName -match $hpPattern} | ForEach-Object {[pscustomobject]@{Name=[string]$_.DisplayName; Version=[string]$_.DisplayVersion}})",
+      "$hpServices=@(Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | Where-Object {(($_.Name + ' ' + $_.DisplayName) -match $hpPattern)} | ForEach-Object {[pscustomobject]@{Name=[string]$_.Name; DisplayName=[string]$_.DisplayName; State=[string]$_.State}})",
+      "$hpProcesses=@(Get-Process -ErrorAction SilentlyContinue | Where-Object {$_.ProcessName -match '(?i)HPWolf|Bromium|SureClick|SureSense|HPVelocity|HPSecurity'} | ForEach-Object {[pscustomobject]@{Name=[string]$_.ProcessName; Pid=[int]$_.Id}})",
+      "$hpBindings=@(Get-NetAdapterBinding -AllBindings -ErrorAction SilentlyContinue | Where-Object {$_.Enabled -and (($_.DisplayName + ' ' + $_.ComponentID) -match $hpPattern)} | ForEach-Object {[pscustomobject]@{Adapter=[string]$_.Name; Name=[string]$_.DisplayName; ComponentId=[string]$_.ComponentID}})",
+      "$ciEvents=@(Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-CodeIntegrity/Operational'; StartTime=(Get-Date).AddDays(-14)} -MaxEvents 100 -ErrorAction SilentlyContinue | Where-Object {$_.Message -match '(?i)WinDivert'} | Select-Object -First 10 | ForEach-Object {[pscustomobject]@{Time=[string]$_.TimeCreated.ToString('o'); Id=[int]$_.Id; Level=[string]$_.LevelDisplayName; Message=[string]$_.Message}})",
+      "[pscustomobject]@{Adapters=$adapters; Dns=$dns; Port53=$ports; Proxy=$proxy; Winws=$winws; WinDivert=$services; Computer=$computerInfo; DeviceGuard=$guardInfo; HpSoftware=$hpSoftware; HpServices=$hpServices; HpProcesses=$hpProcesses; HpBindings=$hpBindings; CodeIntegrity=$ciEvents} | ConvertTo-Json -Compress -Depth 6"
     ].join('; ');
     const output = runPowerShell(command);
     return output ? JSON.parse(output) : {};
@@ -640,6 +653,41 @@ function buildConflictList(system, engineRunning) {
 
   const winws = Array.isArray(system.Winws) ? system.Winws : (system.Winws ? [system.Winws] : []);
   if (winws.length > (engineRunning ? 1 : 0)) conflicts.push({ level: 'warning', title: 'Запущено несколько процессов обхода', detail: `Найдено процессов winws.exe: ${winws.length}` });
+
+  const computer = system.Computer || {};
+  const computerName = `${computer.Manufacturer || ''} ${computer.Model || ''}`.trim();
+  const isHp = /\bHP\b|Hewlett[- ]Packard/i.test(computer.Manufacturer || '');
+  const isArm64 = /arm64/i.test(`${computer.SystemType || ''} ${computer.NativeArchitecture || ''}`);
+  if (isArm64) {
+    conflicts.push({ level: 'error', title: 'Windows ARM64 не поддерживается этой сборкой', detail: `${computerName || 'Устройство'} · ${computer.SystemType || computer.NativeArchitecture}. Для WinDivert нужен отдельный ARM64-драйвер.` });
+  }
+
+  const hpSoftware = Array.isArray(system.HpSoftware) ? system.HpSoftware : (system.HpSoftware ? [system.HpSoftware] : []);
+  const hpServices = Array.isArray(system.HpServices) ? system.HpServices : (system.HpServices ? [system.HpServices] : []);
+  const hpProcesses = Array.isArray(system.HpProcesses) ? system.HpProcesses : (system.HpProcesses ? [system.HpProcesses] : []);
+  const hpBindings = Array.isArray(system.HpBindings) ? system.HpBindings : (system.HpBindings ? [system.HpBindings] : []);
+  const hpNames = [...hpSoftware.map((item) => item.Name), ...hpServices.map((item) => item.DisplayName || item.Name), ...hpBindings.map((item) => item.Name)]
+    .filter(Boolean).filter((value, index, values) => values.indexOf(value) === index);
+  if (hpNames.length || hpProcesses.length) {
+    conflicts.push({
+      level: 'warning',
+      title: 'Обнаружен сетевой фильтр HP',
+      detail: `${hpNames.slice(0, 5).join(', ') || hpProcesses.map((item) => item.Name).slice(0, 5).join(', ')}. Он может мешать перехвату пакетов WinDivert; приложение не отключает защиту автоматически.`
+    });
+  } else if (isHp) {
+    conflicts.push({ level: 'warning', title: 'Обнаружен ноутбук HP', detail: `${computerName}. Рекомендуется профиль «HP / совместимость» без TCP timestamps.` });
+  }
+
+  const guard = system.DeviceGuard || {};
+  const runningGuardServices = Array.isArray(guard.Running) ? guard.Running.map(Number) : (guard.Running === undefined ? [] : [Number(guard.Running)]);
+  if (isHp && (Number(guard.VbsStatus) === 2 || runningGuardServices.includes(2))) {
+    conflicts.push({ level: 'warning', title: 'Активна изоляция ядра Windows', detail: 'HVCI/VBS работает одновременно с защитой HP. Это не доказывает блокировку, но при ошибке драйвера нужно проверить журнал целостности кода.' });
+  }
+
+  const codeIntegrity = Array.isArray(system.CodeIntegrity) ? system.CodeIntegrity : (system.CodeIntegrity ? [system.CodeIntegrity] : []);
+  if (codeIntegrity.length) {
+    conflicts.push({ level: 'error', title: 'Windows блокировал WinDivert', detail: `В журнале целостности кода найдено событий: ${codeIntegrity.length}. Последнее: ${codeIntegrity[0].Message || `событие ${codeIntegrity[0].Id}`}` });
+  }
   return conflicts;
 }
 
@@ -736,8 +784,6 @@ const emptyIcon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KG
 // === ФУНКЦИЯ ЗАЧИСТКИ ЗОМБИ-ПРОЦЕССОВ ===
 function cleanupEngine() {
     try { execSync("taskkill /F /IM winws.exe /T", { stdio: 'ignore', windowsHide: true }); } catch(e){}
-    try { execSync("sc stop WinDivert", { stdio: 'ignore', windowsHide: true }); } catch(e){}
-    try { execSync("sc delete WinDivert", { stdio: 'ignore', windowsHide: true }); } catch(e){}
 }
 
 function showMainWindow() {
@@ -1148,6 +1194,14 @@ ipcMain.handle('diagnostics:run', async (_event, request) => {
     const target = request && request.target ? String(request.target) : 'youtube';
     const engineRunning = !!(request && request.engineRunning);
     return { ok: true, result: await runNetworkDiagnostics(target, engineRunning) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+ipcMain.handle('diagnostics:compatibility', () => {
+  try {
+    const system = collectSystemSignals();
+    return { ok: true, system, conflicts: buildConflictList(system, false) };
   } catch (error) {
     return { ok: false, error: error.message };
   }

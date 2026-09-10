@@ -1,6 +1,6 @@
 {
   "name": "zapret-pro",
-  "version": "6.8.0",
+  "version": "6.9.0",
   "description": "GUI для обхода DPI-блокировок на Windows с отдельным DNS, диагностикой сети и безопасными обновлениями",
   "main": "main.js",
   "scripts": {

@@ -5,8 +5,8 @@ const exePath = path.join(__dirname, 'out', 'ZapretPro-win32-x64', 'Zapret Elect
 
 rcedit(exePath, {
   'requested-execution-level': 'requireAdministrator',
-  'file-version': '6.8.0',
-  'product-version': '6.8.0',
+  'file-version': '6.9.0',
+  'product-version': '6.9.0',
   'version-string': {
     ProductName: 'Zapret Electron',
     FileDescription: 'Обход DPI-блокировок, отдельный DNS, диагностика сети и безопасные обновления',

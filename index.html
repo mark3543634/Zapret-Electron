@@ -140,6 +140,19 @@ select:focus { border-color: #666; }
 select option { background: #0c0c0c; color: #bbb; }
 select optgroup { background: #000; color: #444; font-size: 9px; letter-spacing: 1px; }
 
+.compatibility-hint {
+    display: none;
+    margin-top: 8px;
+    padding: 8px 9px;
+    border: 1px solid #333;
+    color: #777;
+    font-size: 10px;
+    line-height: 1.45;
+}
+.compatibility-hint.visible { display: block; }
+.compatibility-hint.warning { border-color: #806d2f; color: #b19a55; }
+.compatibility-hint.error { border-color: #733; color: #c77777; }
+
 .autostart-row {
     display: flex;
     align-items: center;
@@ -357,6 +370,15 @@ textarea:focus { border-color: #444; color: #aaa; }
     let dnsRuntimeStatus = { enabled: false, profile: null };
     let uiPreviewMode = false;
     let latestDiagnostic = null;
+    let hardwareCompatibility = null;
+    let engineStartInProgress = false;
+    let watchdogRestarting = false;
+    let engineToggleBusy = false;
+    let lastEngineStart = { state: 'idle', message: 'Движок ещё не запускался' };
+
+    const ENGINE_READY_PATTERN = /windivert initialized\. capture is started\./i;
+    const ENGINE_START_TIMEOUT = 6000;
+    const MAX_WATCHDOG_RESTARTS = 3;
 
     const strPath       = __dirname;
     const excludeFile   = path.join(strPath, 'lists', 'list-exclude.txt');
@@ -375,27 +397,116 @@ textarea:focus { border-color: #444; color: #aaa; }
         return args;
     }
 
-    function spawnEngine(stratValue) {
-        const fd = fs.openSync(engineLogPath, 'w');
-        engineProcess = spawn(winwsPath, parseWinwsArgs(stratValue), {
-            cwd: strPath, windowsHide: true,
-            stdio: ['ignore', fd, fd]
-        });
-        fs.closeSync(fd);
-        engineProcess.on('exit', () => {
-            engineProcess = null;
-            if (isRunning && !isAutoDetecting) watchdogRestart();
-        });
+    function readEngineLog() {
+        try { return fs.existsSync(engineLogPath) ? fs.readFileSync(engineLogPath, 'utf8') : ''; }
+        catch (_) { return ''; }
+    }
+
+    function describeEngineFailure(logText, fallback) {
+        const text = String(logText || '');
+        const codeMatch = text.match(/(?:err(?:or)?\s*[=:]?\s*)(5|577|1058|1237|1275)\b/i);
+        const code = codeMatch ? Number(codeMatch[1]) : null;
+        const messages = {
+            5: 'Windows не дала драйверу права администратора.',
+            577: 'Windows отклонила подпись WinDivert. Проверьте обновления Windows, дату и журнал целостности кода.',
+            1058: 'Служба WinDivert осталась в некорректном состоянии. Полностью закройте другие программы обхода и перезагрузите Windows.',
+            1237: 'Windows попросила повторить запуск драйвера. Частая причина — антивирус или сторонний сетевой фильтр.',
+            1275: 'WinDivert заблокирован политикой безопасности или архитектурой Windows. На HP проверьте Wolf Security/Sure Click; ARM64 этой сборкой не поддерживается.'
+        };
+        if (code && messages[code]) return `${messages[code]} Код ${code}.`;
+        const usefulLine = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(-1)[0];
+        return usefulLine ? `Движок не подтвердил запуск: ${usefulLine.slice(0, 260)}` : (fallback || 'Движок не подтвердил запуск WinDivert.');
+    }
+
+    function stopFailedEngine(child) {
+        if (!child || !child.pid) return;
+        try { execSync(`taskkill /F /PID ${child.pid} /T`, { stdio: 'ignore', windowsHide: true }); }
+        catch (_) { try { child.kill(); } catch (_) {} }
+    }
+
+    async function spawnEngine(stratValue) {
+        if (!fs.existsSync(winwsPath)) throw new Error('Файл winws.exe не найден в папке приложения.');
+        engineStartInProgress = true;
+        lastEngineStart = { state: 'starting', startedAt: new Date().toISOString(), message: 'Ожидаем запуск WinDivert' };
+        let child = null;
+        let spawnError = null;
+        try {
+            const fd = fs.openSync(engineLogPath, 'w');
+            try {
+                child = spawn(winwsPath, parseWinwsArgs(stratValue), {
+                    cwd: strPath, windowsHide: true,
+                    stdio: ['ignore', fd, fd]
+                });
+            } finally {
+                fs.closeSync(fd);
+            }
+            engineProcess = child;
+            child.on('error', (error) => {
+                spawnError = error;
+                lastEngineStart = { state: 'failed', message: error.message, failedAt: new Date().toISOString() };
+            });
+            child.on('exit', (code) => {
+                if (engineProcess === child) engineProcess = null;
+                if (isRunning && !isAutoDetecting && !engineStartInProgress && !watchdogRestarting) watchdogRestart();
+                if (code && lastEngineStart.state !== 'ready') {
+                    lastEngineStart = { state: 'failed', exitCode: code, message: describeEngineFailure(readEngineLog(), `Движок завершился с кодом ${code}`), failedAt: new Date().toISOString() };
+                }
+            });
+
+            const deadline = Date.now() + ENGINE_START_TIMEOUT;
+            while (Date.now() < deadline) {
+                const logText = readEngineLog();
+                if (spawnError) throw new Error(describeEngineFailure(logText, spawnError.message));
+                if (ENGINE_READY_PATTERN.test(logText) && child.exitCode === null) {
+                    await new Promise((resolve) => setTimeout(resolve, 250));
+                    if (child.exitCode !== null) throw new Error(describeEngineFailure(readEngineLog(), `Движок завершился с кодом ${child.exitCode}`));
+                    lastEngineStart = { state: 'ready', pid: child.pid, readyAt: new Date().toISOString(), message: 'WinDivert подтвердил перехват трафика' };
+                    return child;
+                }
+                if (child.exitCode !== null) throw new Error(describeEngineFailure(logText, `Движок завершился с кодом ${child.exitCode}`));
+                await new Promise((resolve) => setTimeout(resolve, 120));
+            }
+            throw new Error(describeEngineFailure(readEngineLog(), 'Движок запущен, но WinDivert не подтвердил перехват трафика за 6 секунд.'));
+        } catch (error) {
+            stopFailedEngine(child);
+            if (engineProcess === child) engineProcess = null;
+            lastEngineStart = { state: 'failed', message: error.message, failedAt: new Date().toISOString() };
+            throw error;
+        } finally {
+            engineStartInProgress = false;
+        }
     }
 
     async function watchdogRestart() {
-        watchdogRestarts++;
-        updateWatchdogUI();
-        logMsg(`[!] WATCHDOG: движок упал. Перезапуск #${watchdogRestarts}...`);
-        await new Promise(r => setTimeout(r, 1500));
-        if (!isRunning) return;
-        spawnEngine(document.getElementById('stratSel').value);
-        logMsg('[▶] WATCHDOG: перезапущено.');
+        if (watchdogRestarting || !isRunning) return;
+        watchdogRestarting = true;
+        let lastError = null;
+        try {
+            while (isRunning && watchdogRestarts < MAX_WATCHDOG_RESTARTS) {
+                watchdogRestarts++;
+                updateWatchdogUI();
+                logMsg(`[!] WATCHDOG: движок упал. Перезапуск ${watchdogRestarts}/${MAX_WATCHDOG_RESTARTS}...`);
+                await new Promise(r => setTimeout(r, 1500));
+                if (!isRunning) return;
+                try {
+                    await spawnEngine(document.getElementById('stratSel').value);
+                    logMsg('[▶] WATCHDOG: WinDivert подтвердил перезапуск.');
+                    return;
+                } catch (error) {
+                    lastError = error;
+                    logMsg(`[!] WATCHDOG: ${error.message}`);
+                }
+            }
+            if (!isRunning) return;
+            isRunning = false;
+            updateStatusUI('stopped', lastError ? lastError.message : 'Движок остановился после трёх попыток запуска');
+            stopPingMonitor();
+            stopTimer();
+            setTrayStatus('stopped');
+            logMsg('[X] WATCHDOG остановлен после трёх неудачных запусков. Откройте «Система → Диагностика».');
+        } finally {
+            watchdogRestarting = false;
+        }
     }
 
     function updateStatusUI(state, subtitle) {
@@ -478,8 +589,8 @@ textarea:focus { border-color: #444; color: #aaa; }
         l.scrollTop = l.scrollHeight;
     }
 
-    ipcRenderer.on('hotkey-toggle', () => {
-        StartEngine();
+    ipcRenderer.on('hotkey-toggle', async () => {
+        await StartEngine();
         const state = isRunning ? 'Обход активирован' : 'Обход остановлен';
         notifyUser(state);
     });
@@ -522,6 +633,56 @@ textarea:focus { border-color: #444; color: #aaa; }
         }
     });
 
+    async function DetectHardwareCompatibility() {
+        const hint = document.getElementById('compatibilityHint');
+        try {
+            const response = await ipcRenderer.invoke('diagnostics:compatibility');
+            if (!response || !response.ok) throw new Error(response && response.error ? response.error : 'проверка недоступна');
+            hardwareCompatibility = response;
+            const computer = response.system.Computer || {};
+            const manufacturer = String(computer.Manufacturer || '');
+            const model = String(computer.Model || '').trim();
+            const architecture = `${computer.SystemType || ''} ${computer.NativeArchitecture || ''}`;
+            const isHp = /\bHP\b|Hewlett[- ]Packard/i.test(manufacturer);
+            const isArm64 = /arm64/i.test(architecture);
+
+            if (isArm64) {
+                hint.className = 'compatibility-hint error visible';
+                hint.textContent = `ARM64 (${model || 'устройство'}): x64-драйвер WinDivert не запустится. Нужна отдельная ARM64-сборка.`;
+                return;
+            }
+
+            if (isHp) {
+                const select = document.getElementById('stratSel');
+                const hpOption = Array.from(select.options).find((option) => option.textContent.startsWith('Универсал 2'));
+                if (hpOption) {
+                    hpOption.textContent = '★ HP / совместимость — Multisplit без TS';
+                    select.insertBefore(hpOption, select.firstChild);
+                    if (!localStorage.getItem('savedStrategy') && !localStorage.getItem('favoriteStrategy')) hpOption.selected = true;
+                }
+                const hpFilters = (response.conflicts || []).some((item) => /сетевой фильтр HP/i.test(item.title));
+                hint.className = 'compatibility-hint warning visible';
+                hint.textContent = hpFilters
+                    ? `HP ${model}: найден защитный сетевой фильтр. Сначала используйте профиль «HP / совместимость»; защита не отключается автоматически.`
+                    : `HP ${model}: рекомендуется профиль «HP / совместимость» без TCP timestamps.`;
+                updateFavBtn();
+            }
+        } catch (error) {
+            hardwareCompatibility = { error: error.message };
+        }
+    }
+
+    function getCompatibilityBlocker() {
+        const computer = hardwareCompatibility && hardwareCompatibility.system
+            ? (hardwareCompatibility.system.Computer || {})
+            : {};
+        const architecture = `${computer.SystemType || ''} ${computer.NativeArchitecture || ''}`;
+        if (/arm64/i.test(architecture)) {
+            return 'Эта сборка содержит x64-драйвер WinDivert и не может работать на Windows ARM64.';
+        }
+        return '';
+    }
+
     function Init() {
         if (fs.existsSync(excludeFile))
             document.getElementById('excludeArea').value = fs.readFileSync(excludeFile, 'utf8');
@@ -537,6 +698,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         const savedStrat = fav || localStorage.getItem('savedStrategy');
         if (savedStrat) document.getElementById('stratSel').value = savedStrat;
         updateFavBtn();
+        DetectHardwareCompatibility();
 
         const h = localStorage.getItem('autoHistory');
         if (h) {
@@ -777,33 +939,55 @@ textarea:focus { border-color: #444; color: #aaa; }
         isRunning = false;
         engineProcess = null;
         try { execSync('taskkill /F /IM winws.exe /T', { stdio: 'ignore', windowsHide: true }); } catch(e){}
-        try { execSync('sc stop WinDivert',            { stdio: 'ignore', windowsHide: true }); } catch(e){}
-        try { execSync('sc delete WinDivert',          { stdio: 'ignore', windowsHide: true }); } catch(e){}
         if (wasRunning) updateStatusUI('stopped', 'Движок не активен');
         stopPingMonitor();
         stopTimer();
         setTrayStatus('stopped');
     }
 
-    function StartEngine() {
+    async function StartEngine() {
         if (uiPreviewMode) {
             logMsg('[PREVIEW] Запуск обхода заблокирован, пока открыт старый Zapret.');
             return;
         }
+        const compatibilityBlocker = getCompatibilityBlocker();
+        if (compatibilityBlocker) {
+            updateStatusUI('stopped', compatibilityBlocker);
+            logMsg(`[X] ${compatibilityBlocker}`);
+            return;
+        }
+        if (engineToggleBusy) return;
         if (isAutoDetecting) { alert('Сначала остановите автоподбор!'); return; }
         if (!isRunning) {
             const sel      = document.getElementById('stratSel');
             const strat    = sel.value;
             const stratName = sel.options[sel.selectedIndex].text;
-            Nuke();
-            spawnEngine(strat);
-            isRunning = true;
-            updateStatusUI('running', stratName);
-            watchdogRestarts = 0;
-            logMsg('[▶] Запущено! Движок работает в фоне.');
-            setTrayStatus('running');
-            startTimer();
-            startPingMonitor();
+            engineToggleBusy = true;
+            document.getElementById('mBtn').disabled = true;
+            try {
+                Nuke();
+                await new Promise((resolve) => setTimeout(resolve, 500));
+                updateStatusUI('stopped', 'Запускаем WinDivert и проверяем перехват...');
+                logMsg('[>>] Запуск движка и проверка WinDivert...');
+                await spawnEngine(strat);
+                isRunning = true;
+                updateStatusUI('running', stratName);
+                watchdogRestarts = 0;
+                logMsg('[▶] Запущено! WinDivert подтвердил перехват трафика.');
+                setTrayStatus('running');
+                startTimer();
+                startPingMonitor();
+            } catch (error) {
+                isRunning = false;
+                updateStatusUI('stopped', error.message);
+                setTrayStatus('stopped');
+                stopPingMonitor();
+                stopTimer();
+                logMsg(`[X] Движок не запущен: ${error.message}`);
+            } finally {
+                engineToggleBusy = false;
+                document.getElementById('mBtn').disabled = false;
+            }
         } else {
             Nuke();
             logMsg('[■] Остановлено.');
@@ -813,6 +997,12 @@ textarea:focus { border-color: #444; color: #aaa; }
     function AutoDetect() {
         if (uiPreviewMode) {
             logMsg('[PREVIEW] Автоподбор недоступен в безопасном предпросмотре.');
+            return;
+        }
+        const compatibilityBlocker = getCompatibilityBlocker();
+        if (compatibilityBlocker) {
+            updateStatusUI('stopped', compatibilityBlocker);
+            logMsg(`[X] ${compatibilityBlocker}`);
             return;
         }
         if (isProcessingClick) return;
@@ -876,8 +1066,18 @@ textarea:focus { border-color: #444; color: #aaa; }
                 logMsg(`\n[*] (${idx + 1}/${total}) ${sName}`);
 
                 Nuke();
-                spawnEngine(sVal);
-                await new Promise(r => setTimeout(r, 3500));
+                await new Promise(r => setTimeout(r, 500));
+                try {
+                    await spawnEngine(sVal);
+                    logMsg('   [>] WinDivert запущен, проверяем сайты...');
+                    await new Promise(r => setTimeout(r, 1500));
+                } catch (error) {
+                    logMsg(`   [X] Движок не запустился: ${error.message}`);
+                    testResults[sName] = { ok: 0, total: targets.length, engineError: error.message };
+                    Nuke();
+                    await new Promise(r => setTimeout(r, 800));
+                    continue;
+                }
 
                 let okCount = 0;
                 for (let i = 0; i < targets.length; i++) {
@@ -997,7 +1197,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             const start = Date.now();
             let done = false;
             const finish = (ms, req) => { if (!done) { done = true; if (req) req.destroy(); resolve(ms); } };
-            const req = https.get(url, { timeout: 4000, headers: { 'User-Agent': 'ZapretElectron/6.7' } }, (res) => {
+            const req = https.get(url, { timeout: 4000, headers: { 'User-Agent': 'ZapretElectron/6.9' } }, (res) => {
                 res.resume();
                 finish(Date.now() - start, req);
             });
@@ -1047,7 +1247,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             const request = https.get(requestUrl, {
                 timeout: 12000,
                 headers: {
-                    'User-Agent': 'Zapret-Electron/6.7',
+                    'User-Agent': 'Zapret-Electron/6.9',
                     'Cache-Control': 'no-cache',
                     'Pragma': 'no-cache',
                     'Accept': 'text/plain,*/*;q=0.8'
@@ -1145,12 +1345,20 @@ textarea:focus { border-color: #444; color: #aaa; }
             const stratName = document.getElementById('stratSel').options[document.getElementById('stratSel').selectedIndex].text;
             Nuke();
             await new Promise(r => setTimeout(r, 1000));
-            spawnEngine(strat);
-            isRunning = true;
-            updateStatusUI('running', stratName);
-            setTrayStatus('running');
-            startTimer();
-            startPingMonitor();
+            try {
+                await spawnEngine(strat);
+                isRunning = true;
+                updateStatusUI('running', stratName);
+                setTrayStatus('running');
+                startTimer();
+                startPingMonitor();
+                logMsg('[▶] WinDivert подтвердил перезапуск с новыми списками.');
+            } catch (error) {
+                isRunning = false;
+                updateStatusUI('stopped', error.message);
+                setTrayStatus('stopped');
+                logMsg(`[X] Не удалось перезапустить движок: ${error.message}`);
+            }
         }
 
         btn.textContent = '[UPD]';
@@ -1192,7 +1400,7 @@ textarea:focus { border-color: #444; color: #aaa; }
                 el.textContent = ok ? `✓ ОК ${Date.now() - started}мс` : '? нет ответа';
                 el.className = ok ? 'test-result ok' : 'test-result';
             };
-            const req = https.get(url, { timeout: 5000, headers: { 'User-Agent': 'ZapretElectron/6.7' } }, (res) => {
+            const req = https.get(url, { timeout: 5000, headers: { 'User-Agent': 'ZapretElectron/6.9' } }, (res) => {
                 res.resume();
                 finish(true, req);
             });
@@ -1251,6 +1459,9 @@ textarea:focus { border-color: #444; color: #aaa; }
     function ExportReport() {
         const desktopPath = path.join(os.homedir(), 'Desktop', 'Zapret_Report.txt');
         let report = '=== ОТЧЕТ ZAPRET ELECTRON ===\n\n' + document.getElementById('logArea').value + '\n\n';
+        report += '--- СОСТОЯНИЕ ЗАПУСКА ---\n' + JSON.stringify(lastEngineStart, null, 2) + '\n\n';
+        if (hardwareCompatibility && hardwareCompatibility.system)
+            report += '--- СОВМЕСТИМОСТЬ УСТРОЙСТВА ---\n' + JSON.stringify(hardwareCompatibility.system, null, 2) + '\n\n';
         if (fs.existsSync(engineLogPath))
             report += '--- ЛОГИ ДВИЖКА ---\n' + fs.readFileSync(engineLogPath, 'utf8');
         fs.writeFileSync(desktopPath, report);
@@ -1359,6 +1570,12 @@ textarea:focus { border-color: #444; color: #aaa; }
             '',
             '--- ТЕХНИЧЕСКИЕ СИГНАЛЫ ---',
             JSON.stringify(d.evidence, null, 2),
+            '',
+            '--- СОСТОЯНИЕ ДВИЖКА ---',
+            JSON.stringify(lastEngineStart, null, 2),
+            '',
+            '--- УСТРОЙСТВО И СОВМЕСТИМОСТЬ ---',
+            JSON.stringify(d.system, null, 2),
             '',
             'Отчёт не содержит паролей, прокси-секретов и содержимого браузера.'
         ].join('\r\n');
@@ -1829,7 +2046,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 
 <div class="header">
     <div class="logo">ZAPRET ELECTRON</div>
-    <div id="appVersion" class="version">v6.7</div>
+    <div id="appVersion" class="version">v6.9</div>
 </div>
 
 <div class="mode-toggle">
@@ -1881,6 +2098,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             </optgroup>
 
         </select>
+        <div id="compatibilityHint" class="compatibility-hint"></div>
     </div>
 </div>
 
