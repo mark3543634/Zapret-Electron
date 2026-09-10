@@ -1,7 +1,8 @@
 const rcedit = require('rcedit');
 const path = require('path');
 
-const exePath = path.join(__dirname, 'out', 'ZapretPro-win32-x64', 'Zapret Electron.exe');
+const buildDir = process.env.ZAPRET_BUILD_DIR || 'out';
+const exePath = path.join(__dirname, buildDir, 'ZapretPro-win32-x64', 'Zapret Electron.exe');
 
 rcedit(exePath, {
   'requested-execution-level': 'requireAdministrator',

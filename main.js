@@ -43,6 +43,8 @@ let tgWsStartedAt = 0;
 let tgWsLastError = '';
 let tgWsRecentLog = [];
 let tgWsStopping = false;
+let tgWsConnectRequestedAt = 0;
+let tgWsRouteState = { route: null, seenAt: 0 };
 
 const TG_WS_VERSION = '1.10.2';
 const TG_WS_PORT = 1443;
@@ -144,13 +146,22 @@ function pushTgWsLog(chunk) {
     const line = redactTgWsLog(rawLine);
     if (!line) continue;
     tgWsRecentLog.push(line);
+    if (/stats:.*tcp_fb=[1-9]/i.test(line)) tgWsRouteState = { route: 'tcp', seenAt: Date.now() };
+    else if (/Switched active CF domain|CF worker pool hit|stats:.*cf=[1-9]/i.test(line)) tgWsRouteState = { route: 'cloudflare', seenAt: Date.now() };
+    else if (/DC\d+.*(?:pool hit|WS session)/i.test(line)) tgWsRouteState = { route: 'websocket', seenAt: Date.now() };
   }
   tgWsRecentLog = tgWsRecentLog.slice(-40);
 }
 
 async function getTgWsStatus() {
   const processAlive = isTgWsProcessAlive();
-  const listening = await canConnectTcp(TG_WS_HOST, TG_WS_PORT);
+  // Не открываем TCP-соединение каждые 10 секунд: для MTProto это выглядит
+  // как оборванное рукопожатие и засоряет статистику локального прокси.
+  const listening = processAlive ? true : await canConnectTcp(TG_WS_HOST, TG_WS_PORT);
+  const telegramConnected = !!(
+    tgWsConnectRequestedAt &&
+    tgWsRouteState.seenAt >= tgWsConnectRequestedAt
+  );
   return {
     available: fs.existsSync(tgWsBinaryPath()),
     running: processAlive && listening,
@@ -160,6 +171,9 @@ async function getTgWsStatus() {
     port: TG_WS_PORT,
     version: TG_WS_VERSION,
     startedAt: tgWsStartedAt || null,
+    connectRequestedAt: tgWsConnectRequestedAt || null,
+    telegramConnected,
+    route: telegramConnected ? tgWsRouteState.route : null,
     error: tgWsLastError,
     log: tgWsRecentLog.slice(-12)
   };
@@ -190,11 +204,16 @@ async function startTgWsProxy() {
   tgWsLastError = '';
   tgWsRecentLog = [];
   tgWsStopping = false;
+  tgWsConnectRequestedAt = 0;
+  tgWsRouteState = { route: null, seenAt: 0 };
   tgWsStartedAt = Date.now();
   tgWsProcess = spawn(tgWsBinaryPath(), [
     '--host', TG_WS_HOST,
     '--port', String(TG_WS_PORT),
     '--secret', state.secret,
+    '--dc-ip', '2:149.154.167.220',
+    '--dc-ip', '4:149.154.167.220',
+    '--dc-ip', '203:91.105.192.100',
     '--pool-size', '4',
     '--log-file', tgWsLogPath(),
     '--log-max-mb', '2',
@@ -250,6 +269,8 @@ async function stopTgWsProxy() {
   tgWsProcess = null;
   tgWsStartedAt = 0;
   tgWsLastError = '';
+  tgWsConnectRequestedAt = 0;
+  tgWsRouteState = { route: null, seenAt: 0 };
   rememberTgWsPid(null);
   await publishTgWsStatus();
   return getTgWsStatus();
@@ -263,7 +284,34 @@ function stopTgWsProxySync() {
   }
   tgWsProcess = null;
   tgWsStartedAt = 0;
+  tgWsConnectRequestedAt = 0;
+  tgWsRouteState = { route: null, seenAt: 0 };
   try { rememberTgWsPid(null); } catch (_) {}
+}
+
+function findTelegramExecutable() {
+  const candidates = [
+    path.join(app.getPath('appData'), 'Telegram Desktop', 'Telegram.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Telegram Desktop', 'Telegram.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Telegram Desktop', 'Telegram.exe')
+  ];
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || null;
+}
+
+async function openTelegramProxyLink(url) {
+  const telegramExe = findTelegramExecutable();
+  if (telegramExe) {
+    const child = spawn(telegramExe, ['--', url], {
+      cwd: path.dirname(telegramExe),
+      detached: true,
+      windowsHide: false,
+      stdio: 'ignore'
+    });
+    child.unref();
+    return 'direct';
+  }
+  await shell.openExternal(url);
+  return 'protocol';
 }
 function runPowerShell(command) {
   const result = spawnSync('powershell', [
@@ -1417,8 +1465,10 @@ ipcMain.handle('tg-ws:connect', async () => {
     if (!status.running) throw new Error('Сначала запустите локальный прокси');
     const secret = ensureTgWsState().secret;
     const url = `tg://proxy?server=${encodeURIComponent(status.host)}&port=${status.port}&secret=${encodeURIComponent(`dd${secret}`)}`;
-    await shell.openExternal(url);
-    return { ok: true, status };
+    const launchMethod = await openTelegramProxyLink(url);
+    tgWsConnectRequestedAt = Date.now();
+    setTimeout(publishTgWsStatus, 12000);
+    return { ok: true, launchMethod, status: await getTgWsStatus() };
   } catch (error) {
     return { ok: false, error: error.message, status: await getTgWsStatus() };
   }

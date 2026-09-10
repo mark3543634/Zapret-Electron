@@ -1710,13 +1710,24 @@ textarea:focus { border-color: #444; color: #aaa; }
             toggle.textContent = 'ЗАПУСК…';
             toggle.disabled = true;
         } else if (status.running) {
-            dot.classList.add('good');
-            state.textContent = 'Локальный прокси работает';
-            const recent = Array.isArray(status.log) ? status.log.join(' ') : '';
-            if (/TCP fallback/i.test(recent)) detail.textContent = 'Telegram использует прямой резервный маршрут TCP.';
-            else if (/CF proxy|CF worker/i.test(recent)) detail.textContent = 'Telegram использует резервный маршрут Cloudflare.';
-            else if (/WS session|using WS|pool hit/i.test(recent)) detail.textContent = 'Telegram передаёт данные через WebSocket.';
-            else detail.textContent = 'Нажмите «Подключить Telegram» и подтвердите использование прокси.';
+            const waitMs = status.connectRequestedAt ? Date.now() - status.connectRequestedAt : 0;
+            if (status.telegramConnected) {
+                dot.classList.add('good');
+                state.textContent = 'Telegram подключён';
+                if (status.route === 'tcp') detail.textContent = 'Работает через прямой резервный маршрут TCP.';
+                else if (status.route === 'cloudflare') detail.textContent = 'Работает через резервный маршрут Cloudflare.';
+                else detail.textContent = 'Работает через основной WebSocket-маршрут.';
+            } else if (status.connectRequestedAt && waitMs > 10000) {
+                dot.classList.add('warning');
+                state.textContent = 'Telegram ещё не подключён';
+                detail.textContent = 'В окне Telegram нажмите «Подключить прокси». Если окна нет — нажмите кнопку подключения ещё раз.';
+            } else {
+                dot.classList.add('warning');
+                state.textContent = 'Локальный прокси запущен';
+                detail.textContent = status.connectRequestedAt
+                    ? 'Ожидаем подтверждение в Telegram…'
+                    : 'Нажмите «Подключить Telegram» и подтвердите использование прокси.';
+            }
             toggle.textContent = 'ОСТАНОВИТЬ';
         } else {
             if (status.error) dot.classList.add('error');
@@ -1756,8 +1767,8 @@ textarea:focus { border-color: #444; color: #aaa; }
         if (response.status) RenderTgWsStatus(response.status);
         const detail = document.getElementById('tgWsDetail');
         if (response.ok) {
-            detail.textContent = 'Telegram открыт — подтвердите подключение к локальному прокси.';
-            notifyUser('Telegram открыт для подключения к локальному прокси');
+            detail.textContent = 'В Telegram обязательно нажмите «Подключить прокси». Проверка соединения займёт несколько секунд.';
+            notifyUser('Подтвердите подключение прокси в Telegram');
         } else {
             detail.textContent = response.error || 'Не удалось открыть Telegram.';
         }
@@ -2397,7 +2408,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         <button id="tgWsToggleBtn" class="btn btn-primary" onclick="TgWsToggle()">ЗАПУСТИТЬ И ПОДКЛЮЧИТЬ</button>
         <button id="tgWsConnectBtn" class="btn btn-ghost" onclick="TgWsConnect()" disabled>ПОДКЛЮЧИТЬ TELEGRAM</button>
     </div>
-    <div class="dns-disclaimer">Запускается только вручную и останавливается при выходе из Zapret Electron. Если его остановить, Telegram может сохранить локальный прокси в настройках.</div>
+    <div class="dns-disclaimer">После открытия Telegram обязательно нажмите «Подключить прокси» в его окне. Режим запускается только вручную и останавливается при выходе из Zapret Electron.</div>
 </div>
 
 <div class="card">
