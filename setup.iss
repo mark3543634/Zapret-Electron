@@ -1,3 +1,7 @@
+#ifndef BuildDir
+  #define BuildDir "out"
+#endif
+
 [Setup]
 AppName=Zapret Electron
 AppVersion=6.9
@@ -19,7 +23,7 @@ CloseApplicationsFilter=*.exe
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Files]
-Source: "out\ZapretPro-win32-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BuildDir}\ZapretPro-win32-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\Zapret Electron"; Filename: "{app}\Zapret Electron.exe"

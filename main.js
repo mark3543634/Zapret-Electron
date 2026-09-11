@@ -930,10 +930,10 @@ function buildConflictList(system, engineRunning) {
     conflicts.push({
       level: 'warning',
       title: 'Обнаружен сетевой фильтр HP',
-      detail: `${hpNames.slice(0, 5).join(', ') || hpProcesses.map((item) => item.Name).slice(0, 5).join(', ')}. Он может мешать перехвату пакетов WinDivert; приложение не отключает защиту автоматически.`
+      detail: `${hpNames.slice(0, 5).join(', ') || hpProcesses.map((item) => item.Name).slice(0, 5).join(', ')}. Совместимость HP и требуемые параметры TCP применяются автоматически, но приложение не отключает защиту.`
     });
   } else if (isHp) {
-    conflicts.push({ level: 'warning', title: 'Обнаружен ноутбук HP', detail: `${computerName}. Рекомендуется профиль «HP / совместимость» без TCP timestamps.` });
+    conflicts.push({ level: 'warning', title: 'Совместимость HP включена', detail: `${computerName}. Требуемые параметры TCP будут автоматически подготовлены для любой выбранной стратегии.` });
   }
 
   const guard = system.DeviceGuard || {};

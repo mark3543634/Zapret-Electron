@@ -352,7 +352,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 </style>
 
 <script>
-    const { execSync, spawn } = require('child_process');
+    const { execSync, execFileSync, spawn } = require('child_process');
     const fs   = require('fs');
     const path = require('path');
     const os   = require('os');
@@ -383,6 +383,8 @@ textarea:focus { border-color: #444; color: #aaa; }
     let uiPreviewMode = false;
     let latestDiagnostic = null;
     let hardwareCompatibility = null;
+    let hardwareCompatibilityPromise = null;
+    let hpTcpTimestampsPrepared = false;
     let engineStartInProgress = false;
     let watchdogRestarting = false;
     let engineToggleBusy = false;
@@ -407,6 +409,37 @@ textarea:focus { border-color: #444; color: #aaa; }
         }
         if (cur) args.push(cur);
         return args;
+    }
+
+    function isHpComputer() {
+        const computer = hardwareCompatibility && hardwareCompatibility.system
+            ? (hardwareCompatibility.system.Computer || {})
+            : {};
+        return /\bHP\b|Hewlett[- ]Packard/i.test(String(computer.Manufacturer || ''));
+    }
+
+    function buildWinwsLaunchArgs(stratValue) {
+        const args = parseWinwsArgs(stratValue);
+        const hpCompatibility = isHpComputer();
+        const requiresTcpTimestamps = args.some((arg) => {
+            const match = arg.match(/^--dpi-desync-fooling=(.+)$/i);
+            return match && match[1].split(',').some((method) => method.trim().toLowerCase() === 'ts');
+        });
+        return { args, hpCompatibility, requiresTcpTimestamps };
+    }
+
+    function prepareHpNetworkCompatibility(launch) {
+        if (!launch.hpCompatibility || !launch.requiresTcpTimestamps || hpTcpTimestampsPrepared) return;
+        try {
+            execFileSync('netsh.exe', ['interface', 'tcp', 'set', 'global', 'timestamps=enabled'], {
+                windowsHide: true,
+                stdio: 'ignore'
+            });
+            hpTcpTimestampsPrepared = true;
+            logMsg('[HP] Автосовместимость: TCP timestamps включены для выбранной стратегии.');
+        } catch (error) {
+            throw new Error('Не удалось подготовить TCP для выбранной стратегии на HP. Перезапустите приложение с правами администратора.');
+        }
     }
 
     function readEngineLog() {
@@ -438,14 +471,24 @@ textarea:focus { border-color: #444; color: #aaa; }
 
     async function spawnEngine(stratValue) {
         if (!fs.existsSync(winwsPath)) throw new Error('Файл winws.exe не найден в папке приложения.');
+        if (hardwareCompatibilityPromise) await hardwareCompatibilityPromise.catch(() => {});
+        const launch = buildWinwsLaunchArgs(stratValue);
+        prepareHpNetworkCompatibility(launch);
         engineStartInProgress = true;
-        lastEngineStart = { state: 'starting', startedAt: new Date().toISOString(), message: 'Ожидаем запуск WinDivert' };
+        lastEngineStart = {
+            state: 'starting',
+            startedAt: new Date().toISOString(),
+            hpCompatibility: launch.hpCompatibility,
+            tcpTimestampsRequired: launch.requiresTcpTimestamps,
+            tcpTimestampsPrepared: launch.requiresTcpTimestamps && hpTcpTimestampsPrepared,
+            message: launch.hpCompatibility ? 'Ожидаем запуск WinDivert · совместимость HP включена' : 'Ожидаем запуск WinDivert'
+        };
         let child = null;
         let spawnError = null;
         try {
             const fd = fs.openSync(engineLogPath, 'w');
             try {
-                child = spawn(winwsPath, parseWinwsArgs(stratValue), {
+                child = spawn(winwsPath, launch.args, {
                     cwd: strPath, windowsHide: true,
                     stdio: ['ignore', fd, fd]
                 });
@@ -455,13 +498,13 @@ textarea:focus { border-color: #444; color: #aaa; }
             engineProcess = child;
             child.on('error', (error) => {
                 spawnError = error;
-                lastEngineStart = { state: 'failed', message: error.message, failedAt: new Date().toISOString() };
+                lastEngineStart = { state: 'failed', hpCompatibility: launch.hpCompatibility, message: error.message, failedAt: new Date().toISOString() };
             });
             child.on('exit', (code) => {
                 if (engineProcess === child) engineProcess = null;
                 if (isRunning && !isAutoDetecting && !engineStartInProgress && !watchdogRestarting) watchdogRestart();
                 if (code && lastEngineStart.state !== 'ready') {
-                    lastEngineStart = { state: 'failed', exitCode: code, message: describeEngineFailure(readEngineLog(), `Движок завершился с кодом ${code}`), failedAt: new Date().toISOString() };
+                    lastEngineStart = { state: 'failed', exitCode: code, hpCompatibility: launch.hpCompatibility, message: describeEngineFailure(readEngineLog(), `Движок завершился с кодом ${code}`), failedAt: new Date().toISOString() };
                 }
             });
 
@@ -472,7 +515,7 @@ textarea:focus { border-color: #444; color: #aaa; }
                 if (ENGINE_READY_PATTERN.test(logText) && child.exitCode === null) {
                     await new Promise((resolve) => setTimeout(resolve, 250));
                     if (child.exitCode !== null) throw new Error(describeEngineFailure(readEngineLog(), `Движок завершился с кодом ${child.exitCode}`));
-                    lastEngineStart = { state: 'ready', pid: child.pid, readyAt: new Date().toISOString(), message: 'WinDivert подтвердил перехват трафика' };
+                    lastEngineStart = { state: 'ready', pid: child.pid, readyAt: new Date().toISOString(), hpCompatibility: launch.hpCompatibility, tcpTimestampsRequired: launch.requiresTcpTimestamps, tcpTimestampsPrepared: launch.requiresTcpTimestamps && hpTcpTimestampsPrepared, message: launch.hpCompatibility ? 'WinDivert подтвердил перехват трафика · совместимость HP включена' : 'WinDivert подтвердил перехват трафика' };
                     return child;
                 }
                 if (child.exitCode !== null) throw new Error(describeEngineFailure(logText, `Движок завершился с кодом ${child.exitCode}`));
@@ -482,7 +525,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         } catch (error) {
             stopFailedEngine(child);
             if (engineProcess === child) engineProcess = null;
-            lastEngineStart = { state: 'failed', message: error.message, failedAt: new Date().toISOString() };
+            lastEngineStart = { state: 'failed', hpCompatibility: launch.hpCompatibility, message: error.message, failedAt: new Date().toISOString() };
             throw error;
         } finally {
             engineStartInProgress = false;
@@ -667,19 +710,11 @@ textarea:focus { border-color: #444; color: #aaa; }
             }
 
             if (isHp) {
-                const select = document.getElementById('stratSel');
-                const hpOption = Array.from(select.options).find((option) => option.textContent.startsWith('Универсал 2'));
-                if (hpOption) {
-                    hpOption.textContent = '★ HP / совместимость — Multisplit без TS';
-                    select.insertBefore(hpOption, select.firstChild);
-                    if (!localStorage.getItem('savedStrategy') && !localStorage.getItem('favoriteStrategy')) hpOption.selected = true;
-                }
                 const hpFilters = (response.conflicts || []).some((item) => /сетевой фильтр HP/i.test(item.title));
                 hint.className = 'compatibility-hint warning visible';
                 hint.textContent = hpFilters
-                    ? `HP ${model}: найден защитный сетевой фильтр. Сначала используйте профиль «HP / совместимость»; защита не отключается автоматически.`
-                    : `HP ${model}: рекомендуется профиль «HP / совместимость» без TCP timestamps.`;
-                updateFavBtn();
+                    ? `HP ${model}: автоматическая совместимость включена для всех стратегий. TCP подготавливается при необходимости; найден защитный сетевой фильтр, который приложение не отключает.`
+                    : `HP ${model}: автоматическая совместимость включена для всех стратегий. Дополнительная настройка TCP применяется только при необходимости.`;
             }
         } catch (error) {
             hardwareCompatibility = { error: error.message };
@@ -712,7 +747,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         const savedStrat = fav || localStorage.getItem('savedStrategy');
         if (savedStrat) document.getElementById('stratSel').value = savedStrat;
         updateFavBtn();
-        DetectHardwareCompatibility();
+        hardwareCompatibilityPromise = DetectHardwareCompatibility();
 
         const h = localStorage.getItem('autoHistory');
         if (h) {
@@ -968,6 +1003,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             logMsg('[PREVIEW] Запуск обхода заблокирован, пока открыт старый Zapret.');
             return;
         }
+        if (hardwareCompatibilityPromise) await hardwareCompatibilityPromise.catch(() => {});
         const compatibilityBlocker = getCompatibilityBlocker();
         if (compatibilityBlocker) {
             updateStatusUI('stopped', compatibilityBlocker);
@@ -1012,11 +1048,12 @@ textarea:focus { border-color: #444; color: #aaa; }
         }
     }
 
-    function AutoDetect() {
+    async function AutoDetect() {
         if (uiPreviewMode) {
             logMsg('[PREVIEW] Автоподбор недоступен в безопасном предпросмотре.');
             return;
         }
+        if (hardwareCompatibilityPromise) await hardwareCompatibilityPromise.catch(() => {});
         const compatibilityBlocker = getCompatibilityBlocker();
         if (compatibilityBlocker) {
             updateStatusUI('stopped', compatibilityBlocker);
