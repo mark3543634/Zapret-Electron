@@ -349,6 +349,299 @@ textarea:focus { border-color: #444; color: #aaa; }
 .update-status { color: #777; font-size: 11px; line-height: 1.5; white-space: pre-line; }
 .update-actions { display: flex; gap: 7px; margin-top: 8px; }
 .update-actions .btn { padding: 7px 8px; }
+
+/* Galaxy shell ---------------------------------------------------------- */
+.galaxy-shell {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 224px minmax(420px, 1fr) 356px;
+    min-width: 1000px;
+    min-height: 680px;
+    overflow: hidden;
+    background: #000;
+    color: #fff;
+}
+
+.galaxy-left,
+.galaxy-right {
+    position: relative;
+    z-index: 3;
+    min-width: 0;
+    background: rgba(0, 0, 0, .94);
+}
+
+.galaxy-left {
+    display: flex;
+    flex-direction: column;
+    padding: 28px 18px 20px;
+    border-right: 1px solid #363636;
+}
+
+.galaxy-right {
+    display: flex;
+    flex-direction: column;
+    padding: 24px 18px 18px;
+    border-left: 1px solid #363636;
+}
+
+.galaxy-brand {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    margin: 8px 8px 48px;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 5px;
+}
+
+.pixel-star {
+    position: relative;
+    width: 25px;
+    height: 25px;
+    flex: 0 0 25px;
+}
+.pixel-star::before,
+.pixel-star::after {
+    content: '';
+    position: absolute;
+    background: #fff;
+}
+.pixel-star::before { left: 10px; top: 0; width: 5px; height: 25px; }
+.pixel-star::after { left: 0; top: 10px; width: 25px; height: 5px; }
+
+.galaxy-nav { display: grid; gap: 12px; }
+.galaxy-nav-btn,
+.galaxy-action,
+.galaxy-service,
+.galaxy-mini-action,
+.workspace-close {
+    appearance: none;
+    border: 1px solid #777;
+    border-radius: 0;
+    background: #000;
+    color: #d9d9d9;
+    font: 700 11px/1.2 "Courier New", Consolas, monospace;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.galaxy-nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 54px;
+    padding: 0 14px;
+    text-align: left;
+}
+.galaxy-nav-btn .nav-glyph { width: 20px; color: #999; font-size: 15px; text-align: center; }
+.galaxy-nav-btn:hover,
+.galaxy-nav-btn.active,
+.galaxy-action:hover,
+.galaxy-service:hover,
+.galaxy-mini-action:hover,
+.workspace-close:hover {
+    border-color: #fff;
+    color: #fff;
+    box-shadow: inset 0 0 0 1px #fff;
+}
+.galaxy-nav-btn.active .nav-glyph { color: #fff; }
+
+.galaxy-left-foot {
+    margin-top: auto;
+    padding: 0 8px;
+    color: #666;
+    font-size: 10px;
+    letter-spacing: 1px;
+}
+.galaxy-update-link {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+    padding: 9px 8px;
+}
+
+.galaxy-stage {
+    position: relative;
+    z-index: 1;
+    min-width: 0;
+    overflow: hidden;
+    background: #000;
+}
+#galaxyCanvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
+.galaxy-vignette {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(circle at center, transparent 0 34%, rgba(0,0,0,.12) 55%, rgba(0,0,0,.72) 100%);
+}
+.galaxy-center-status {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 250px;
+    padding: 20px 18px;
+    text-align: center;
+    background: rgba(0, 0, 0, .86);
+    border: 1px solid #444;
+    pointer-events: none;
+}
+.galaxy-state-line { display: flex; align-items: center; justify-content: center; gap: 9px; }
+.galaxy-state-dot { width: 7px; height: 7px; background: #555; }
+.galaxy-state-dot.running { background: #62e77d; box-shadow: 0 0 8px rgba(98,231,125,.55); }
+.galaxy-state-title { color: #aaa; font-size: 13px; font-weight: bold; letter-spacing: 1.2px; }
+.galaxy-state-title.running { color: #fff; }
+.galaxy-network { margin-top: 8px; color: #aaa; font-size: 11px; }
+.galaxy-state-meta { margin-top: 6px; color: #565656; font-size: 9px; }
+
+.galaxy-power {
+    width: 100%;
+    min-height: 64px;
+    margin-bottom: 26px;
+    border-color: #fff;
+    color: #fff;
+    font-size: 14px;
+}
+.galaxy-section-label { margin-bottom: 12px; color: #777; font-size: 9px; font-weight: bold; letter-spacing: 2px; }
+.galaxy-services { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.galaxy-service {
+    aspect-ratio: 1 / 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: space-between;
+    min-width: 0;
+    padding: 16px 13px;
+    text-align: left;
+    text-transform: none;
+}
+.service-icon { color: #fff; font-size: 21px; line-height: 1; }
+.service-name { display: block; color: #fff; font-size: 12px; letter-spacing: .2px; overflow: hidden; text-overflow: ellipsis; }
+.service-state { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: #777; font-size: 9px; font-weight: normal; letter-spacing: 0; }
+.service-state::before { content: ''; width: 5px; height: 5px; background: #62e77d; flex: 0 0 5px; }
+.service-state.pending::before { background: #666; }
+.service-state.error::before { background: #d46a6a; }
+.galaxy-secondary { display: grid; gap: 9px; margin-top: 16px; }
+.galaxy-mini-action { min-height: 43px; padding: 9px 10px; }
+.galaxy-health { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 16px; border-top: 1px solid #333; color: #777; font-size: 10px; }
+.galaxy-health::before { content: ''; width: 6px; height: 6px; background: #62e77d; }
+
+.legacy-ui {
+    position: fixed;
+    z-index: 20;
+    top: 0;
+    right: 0;
+    width: min(560px, calc(100vw - 224px));
+    height: 100vh;
+    padding: 0;
+    overflow: hidden;
+    background: #000;
+    border-left: 1px solid #fff;
+    transform: translateX(102%);
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform 160ms ease-out;
+    box-shadow: -20px 0 50px rgba(0,0,0,.75);
+}
+.legacy-ui.open { transform: translateX(0); visibility: visible; pointer-events: auto; }
+.workspace-head {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 64px;
+    padding: 0 18px;
+    border-bottom: 1px solid #444;
+    background: #000;
+}
+.workspace-title { color: #fff; font-size: 12px; font-weight: bold; letter-spacing: 1.5px; text-transform: uppercase; }
+.workspace-close { flex: 0 0 auto; width: 38px; height: 34px; padding: 0; font-size: 16px; }
+.workspace-scroll { height: calc(100vh - 64px); padding: 16px 18px 28px; overflow-y: auto; }
+.legacy-ui .header,
+.legacy-ui .mode-toggle { display: none !important; }
+.legacy-ui .btn,
+.legacy-ui select,
+.legacy-ui textarea,
+.legacy-ui .card,
+.legacy-ui .status-card,
+.legacy-ui .autostart-row,
+.legacy-ui .dns-profile-card,
+.legacy-ui .diagnostic-result,
+.legacy-ui .signal-item,
+.legacy-ui .proxy-input { border-radius: 0 !important; }
+.legacy-ui .btn { border-color: #555; color: #aaa; }
+.legacy-ui .btn:hover:not(:disabled) { border-color: #fff; background: #fff; color: #000; }
+.legacy-ui .dns-profile-card.selected,
+.legacy-ui .dns-master-row.enabled,
+.legacy-ui .dns-hero.active { border-color: #fff; }
+.legacy-ui .tgws-card { background: #050505; border-color: #444; }
+.legacy-ui:not(.advanced-mode) .advanced-only { display: none !important; }
+
+.bypass-profile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+.bypass-profile-card {
+    appearance: none;
+    min-height: 98px;
+    padding: 12px;
+    border: 1px solid #444;
+    border-radius: 0;
+    background: #030303;
+    color: #aaa;
+    text-align: left;
+    cursor: pointer;
+}
+.bypass-profile-card:hover,
+.bypass-profile-card.selected {
+    border-color: #fff;
+    color: #fff;
+    box-shadow: inset 0 0 0 1px #fff;
+}
+.bypass-profile-card.auto { grid-column: 1 / -1; min-height: 72px; }
+.bypass-profile-name { display: block; color: #fff; font: 700 11px/1.2 "Courier New", Consolas, monospace; letter-spacing: 1px; }
+.bypass-profile-copy { display: block; margin-top: 7px; color: #777; font-size: 10px; line-height: 1.45; }
+.bypass-profile-card.selected .bypass-profile-copy { color: #aaa; }
+.bypass-profile-badge { display: inline-block; margin-top: 8px; color: #666; font: 700 8px/1 "Courier New", Consolas, monospace; letter-spacing: 1px; text-transform: uppercase; }
+.bypass-profile-hint { margin-top: 10px; padding-top: 9px; border-top: 1px solid #222; color: #777; font-size: 10px; line-height: 1.45; }
+.strategy-technical { margin-top: 12px; }
+.engine-mode-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.engine-mode-card {
+    appearance: none; aspect-ratio: 1 / 1; min-height: 88px; padding: 9px;
+    border: 1px solid #444; border-radius: 0; background: #030303; color: #777;
+    text-align: left; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between;
+}
+.engine-mode-card:hover, .engine-mode-card.selected { border-color: #fff; color: #fff; box-shadow: inset 0 0 0 1px #fff; }
+.engine-mode-name { color: #fff; font: 700 10px/1.2 "Courier New", Consolas, monospace; letter-spacing: .7px; }
+.engine-mode-meta { color: #666; font-size: 9px; line-height: 1.35; }
+.engine-mode-card.selected .engine-mode-meta { color: #aaa; }
+.engine-mode-hint { margin-top: 9px; color: #777; font-size: 10px; line-height: 1.45; }
+.profile-applicability { margin: 10px 0; padding: 10px; border: 1px solid #333; background: #050505; color: #aaa; font-size: 10px; line-height: 1.5; }
+.profile-applicability strong { display: block; margin-bottom: 3px; color: #fff; font: 700 10px/1.3 "Courier New", Consolas, monospace; letter-spacing: .7px; }
+.bypass-profile-grid.inactive-engine .bypass-profile-card { opacity: .42; }
+.bypass-profile-grid.inactive-engine .bypass-profile-card:hover { border-color: #777; color: #aaa; box-shadow: none; }
+
+.legacy-ui.workspace-view-profiles .workspace-settings-section,
+.legacy-ui.workspace-view-profiles .workspace-journal-section,
+.legacy-ui.workspace-view-settings .workspace-profile-section,
+.legacy-ui.workspace-view-settings .workspace-journal-section,
+.legacy-ui.workspace-view-journal .workspace-profile-section,
+.legacy-ui.workspace-view-journal .workspace-settings-section { display: none !important; }
+
+@media (max-width: 1180px) {
+    .galaxy-shell { grid-template-columns: 188px minmax(360px, 1fr) 320px; }
+    .galaxy-left { padding-left: 12px; padding-right: 12px; }
+    .galaxy-right { padding-left: 14px; padding-right: 14px; }
+    .galaxy-brand { letter-spacing: 3px; }
+}
 </style>
 
 <script>
@@ -388,7 +681,13 @@ textarea:focus { border-color: #444; color: #aaa; }
     let engineStartInProgress = false;
     let watchdogRestarting = false;
     let engineToggleBusy = false;
+    let currentNetworkProfile = null;
+    let availabilityRepairTimer = null;
+    let availabilityRepairFailures = 0;
+    let availabilityRepairLastRun = 0;
+    let availabilityRepairBusy = false;
     let lastEngineStart = { state: 'idle', message: 'Движок ещё не запускался' };
+    let activeEngineInfo = null;
 
     const ENGINE_READY_PATTERN = /windivert initialized\. capture is started\./i;
     const ENGINE_START_TIMEOUT = 6000;
@@ -469,62 +768,35 @@ textarea:focus { border-color: #444; color: #aaa; }
         catch (_) { try { child.kill(); } catch (_) {} }
     }
 
-    async function spawnEngine(stratValue) {
-        if (!fs.existsSync(winwsPath)) throw new Error('Файл winws.exe не найден в папке приложения.');
+    async function spawnEngine(stratValue, forcedMode = null) {
         if (hardwareCompatibilityPromise) await hardwareCompatibilityPromise.catch(() => {});
         const launch = buildWinwsLaunchArgs(stratValue);
-        prepareHpNetworkCompatibility(launch);
+        const requestedMode = forcedMode || localStorage.getItem('engineMode') || 'auto';
+        if (requestedMode === 'winws') prepareHpNetworkCompatibility(launch);
         engineStartInProgress = true;
         lastEngineStart = {
-            state: 'starting',
-            startedAt: new Date().toISOString(),
+            state: 'starting', startedAt: new Date().toISOString(),
             hpCompatibility: launch.hpCompatibility,
-            tcpTimestampsRequired: launch.requiresTcpTimestamps,
-            tcpTimestampsPrepared: launch.requiresTcpTimestamps && hpTcpTimestampsPrepared,
-            message: launch.hpCompatibility ? 'Ожидаем запуск WinDivert · совместимость HP включена' : 'Ожидаем запуск WinDivert'
+            message: 'Проверяем выбранный способ обхода'
         };
-        let child = null;
-        let spawnError = null;
         try {
-            const fd = fs.openSync(engineLogPath, 'w');
-            try {
-                child = spawn(winwsPath, launch.args, {
-                    cwd: strPath, windowsHide: true,
-                    stdio: ['ignore', fd, fd]
-                });
-            } finally {
-                fs.closeSync(fd);
-            }
-            engineProcess = child;
-            child.on('error', (error) => {
-                spawnError = error;
-                lastEngineStart = { state: 'failed', hpCompatibility: launch.hpCompatibility, message: error.message, failedAt: new Date().toISOString() };
+            const response = await ipcRenderer.invoke('engine:start', {
+                mode: requestedMode,
+                winwsArgs: launch.args
             });
-            child.on('exit', (code) => {
-                if (engineProcess === child) engineProcess = null;
-                if (isRunning && !isAutoDetecting && !engineStartInProgress && !watchdogRestarting) watchdogRestart();
-                if (code && lastEngineStart.state !== 'ready') {
-                    lastEngineStart = { state: 'failed', exitCode: code, hpCompatibility: launch.hpCompatibility, message: describeEngineFailure(readEngineLog(), `Движок завершился с кодом ${code}`), failedAt: new Date().toISOString() };
-                }
-            });
-
-            const deadline = Date.now() + ENGINE_START_TIMEOUT;
-            while (Date.now() < deadline) {
-                const logText = readEngineLog();
-                if (spawnError) throw new Error(describeEngineFailure(logText, spawnError.message));
-                if (ENGINE_READY_PATTERN.test(logText) && child.exitCode === null) {
-                    await new Promise((resolve) => setTimeout(resolve, 250));
-                    if (child.exitCode !== null) throw new Error(describeEngineFailure(readEngineLog(), `Движок завершился с кодом ${child.exitCode}`));
-                    lastEngineStart = { state: 'ready', pid: child.pid, readyAt: new Date().toISOString(), hpCompatibility: launch.hpCompatibility, tcpTimestampsRequired: launch.requiresTcpTimestamps, tcpTimestampsPrepared: launch.requiresTcpTimestamps && hpTcpTimestampsPrepared, message: launch.hpCompatibility ? 'WinDivert подтвердил перехват трафика · совместимость HP включена' : 'WinDivert подтвердил перехват трафика' };
-                    return child;
-                }
-                if (child.exitCode !== null) throw new Error(describeEngineFailure(logText, `Движок завершился с кодом ${child.exitCode}`));
-                await new Promise((resolve) => setTimeout(resolve, 120));
-            }
-            throw new Error(describeEngineFailure(readEngineLog(), 'Движок запущен, но WinDivert не подтвердил перехват трафика за 6 секунд.'));
+            if (!response || !response.ok) throw new Error((response && response.error) || 'Движок не запустился');
+            activeEngineInfo = response.status;
+            engineProcess = { pid: response.status.pid, mode: response.status.mode };
+            lastEngineStart = {
+                state: 'ready', pid: response.status.pid, readyAt: new Date().toISOString(),
+                hpCompatibility: launch.hpCompatibility,
+                mode: response.status.mode,
+                message: `${response.status.label} готов`
+            };
+            return engineProcess;
         } catch (error) {
-            stopFailedEngine(child);
-            if (engineProcess === child) engineProcess = null;
+            engineProcess = null;
+            activeEngineInfo = null;
             lastEngineStart = { state: 'failed', hpCompatibility: launch.hpCompatibility, message: error.message, failedAt: new Date().toISOString() };
             throw error;
         } finally {
@@ -589,6 +861,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         }
         if (subtitle !== undefined) sub.textContent = subtitle;
         UpdateDnsStatusUI();
+        SyncGalaxyStatus();
     }
 
     function getSelectedStrategyName() {
@@ -607,14 +880,17 @@ textarea:focus { border-color: #444; color: #aaa; }
 
     function sendTraySnapshot(imgBase64) {
         const uptime = engineStartTime ? formatUptime(Date.now() - engineStartTime) : '00:00:00';
+        const runningLabel = activeEngineInfo && activeEngineInfo.label
+            ? `${activeEngineInfo.label} · ${getSelectedStrategyName()}`
+            : getSelectedStrategyName();
         ipcRenderer.send('update-tray', {
             imgBase64,
             tooltip: currentTrayStatus === 'running'
-                ? `Zapret Electron: АКТИВЕН — ${getSelectedStrategyName()}`
+                ? `Zapret Electron: АКТИВЕН — ${runningLabel}`
                 : 'Zapret Electron: ОСТАНОВЛЕН',
             state: {
                 running: currentTrayStatus === 'running',
-                strategy: currentTrayStatus === 'running' ? getSelectedStrategyName() : 'Движок не активен',
+                strategy: currentTrayStatus === 'running' ? runningLabel : 'Движок не активен',
                 ping: latestPingText,
                 uptime,
                 autostart: localStorage.getItem('autostart') === 'true',
@@ -688,6 +964,16 @@ textarea:focus { border-color: #444; color: #aaa; }
         }
     });
 
+    ipcRenderer.on('engine:event', (_event, event) => {
+        if (!event || event.type === 'error' && engineStartInProgress) return;
+        if (event.type === 'exit' && isRunning && !isAutoDetecting && !watchdogRestarting) {
+            engineProcess = null;
+            activeEngineInfo = event.status || null;
+            logMsg(`[!] ${event.error || 'Способ обхода неожиданно остановился.'}`);
+            watchdogRestart();
+        }
+    });
+
     ipcRenderer.on('tg-ws:status', (_event, status) => RenderTgWsStatus(status));
 
     async function DetectHardwareCompatibility() {
@@ -713,8 +999,8 @@ textarea:focus { border-color: #444; color: #aaa; }
                 const hpFilters = (response.conflicts || []).some((item) => /сетевой фильтр HP/i.test(item.title));
                 hint.className = 'compatibility-hint warning visible';
                 hint.textContent = hpFilters
-                    ? `HP ${model}: автоматическая совместимость включена для всех стратегий. TCP подготавливается при необходимости; найден защитный сетевой фильтр, который приложение не отключает.`
-                    : `HP ${model}: автоматическая совместимость включена для всех стратегий. Дополнительная настройка TCP применяется только при необходимости.`;
+                    ? `HP ${model}: режим «Авто» выберет обход без WinDivert. Найден защитный сетевой фильтр HP — приложение не отключает его.`
+                    : `HP ${model}: режим «Авто» выберет вариант без сетевого драйвера; полный Zapret можно включить вручную.`;
             }
         } catch (error) {
             hardwareCompatibility = { error: error.message };
@@ -746,7 +1032,15 @@ textarea:focus { border-color: #444; color: #aaa; }
         const fav = localStorage.getItem('favoriteStrategy');
         const savedStrat = fav || localStorage.getItem('savedStrategy');
         if (savedStrat) document.getElementById('stratSel').value = savedStrat;
+        document.getElementById('networkMemoryChk').checked = localStorage.getItem('networkMemory') !== 'false';
+        document.getElementById('availabilityRepairChk').checked = localStorage.getItem('availabilityRepair') === 'true';
+        document.getElementById('advancedModeChk').checked = localStorage.getItem('advancedMode') === 'true';
+        ApplyAdvancedMode();
+        RestoreNetworkStrategy();
+        RestartAvailabilityRepairMonitor();
         updateFavBtn();
+        UpdateBypassProfileCards();
+        UpdateEngineModeCards();
         hardwareCompatibilityPromise = DetectHardwareCompatibility();
 
         const h = localStorage.getItem('autoHistory');
@@ -771,8 +1065,9 @@ textarea:focus { border-color: #444; color: #aaa; }
             logMsg(`[>] Списки обновлены: DPI ${okD}/${totalD}, прокси ${okP}/${totalP}`);
         };
 
-        setTimeout(backgroundListRefresh, 4000);
-        if (!listRefreshInterval) {
+        const isSafePreview = process.argv.includes('--ui-preview') || process.argv.includes('--zapret-ui-preview');
+        if (!isSafePreview) setTimeout(backgroundListRefresh, 4000);
+        if (!isSafePreview && !listRefreshInterval) {
             listRefreshInterval = setInterval(backgroundListRefresh, 30 * 60 * 1000);
         }
 
@@ -922,7 +1217,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         const profile = document.getElementById('dnsProfileSel').value;
         const hint = document.getElementById('dnsProfileHint');
         hint.textContent = profile === 'smartAi'
-            ? 'Comss.one: точечный доступ к поддерживаемым ИИ-сервисам. Это сторонний DNS, а не VPN.'
+            ? 'Зашифрованный Comss DoH: точечный доступ к поддерживаемым ИИ-сервисам с двумя резервными DNS-маршрутами. Это не VPN.'
             : 'Шифрует DNS-запросы через Cloudflare/Google, но сам по себе не меняет регион.';
         document.querySelectorAll('.dns-profile-card').forEach((card) => {
             card.classList.toggle('selected', card.dataset.profile === profile);
@@ -952,7 +1247,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         title.textContent = enabled ? 'DNS АКТИВЕН' : 'DNS ВЫКЛЮЧЕН';
         title.classList.toggle('running', enabled);
         subtitle.textContent = enabled
-            ? (profile === 'smartAi' ? 'Smart DNS для нейросетей · Comss.one' : 'Защищённые запросы · Cloudflare / Google')
+            ? (profile === 'smartAi' ? 'Smart DNS · Comss DoH с резервом' : 'Защищённые запросы · Cloudflare / Google')
             : 'Системные настройки DNS не изменены';
 
         compat.className = 'dns-compat';
@@ -972,10 +1267,202 @@ textarea:focus { border-color: #444; color: #aaa; }
                 ? 'Обычно режимы работают вместе. Если одна нейросеть перестанет открываться, сначала остановите обход и повторите проверку.'
                 : 'Comss.one меняет маршрутизацию только для поддерживаемых доменов нейросетей; это не VPN.';
         }
+        UpdateGalaxyServiceState(
+            'galaxyAiState',
+            enabled ? (profile === 'smartAi' ? 'Smart DNS активен' : 'DNS активен') : 'DNS выключен',
+            enabled ? 'ok' : 'pending'
+        );
     }
 
     function SaveStrategyChoice() {
         localStorage.setItem('savedStrategy', document.getElementById('stratSel').value);
+        SaveNetworkStrategy();
+        UpdateBypassProfileCards();
+        SyncGalaxyStatus();
+    }
+
+    const ENGINE_MODES = {
+        auto: {
+            hint: 'Сам выбирает основу: обычным ПК — полный Zapret, на HP с возможным конфликтом сетевого фильтра — режим без драйвера.'
+        },
+        winws: {
+            hint: 'Самый полный режим: HTTPS, QUIC/UDP, Discord и игровые сервисы. Лучший выбор, если WinDivert запускается нормально.'
+        },
+        byedpi: {
+            hint: 'Локальный SOCKS-режим без WinDivert. Полезен на HP и ПК, где защитное ПО блокирует сетевой драйвер.'
+        },
+        dpibreak: {
+            hint: 'Лёгкий системный режим только для HTTPS/TLS. Не обрабатывает QUIC/UDP и игры.'
+        },
+        goodbyedpi: {
+            hint: 'Совместимый запасной системный движок для HTTPS, если встроенные стратегии Zapret не подходят провайдеру.'
+        },
+        greentunnel: {
+            hint: 'Браузерный HTTP(S)-прокси с фрагментацией TLS. Удобен для сайтов, но не предназначен для UDP и большинства игр.'
+        }
+    };
+
+    function UpdateEngineModeCards() {
+        const mode = localStorage.getItem('engineMode') || 'auto';
+        document.querySelectorAll('.engine-mode-card').forEach((card) => {
+            const selected = card.dataset.engine === mode;
+            card.classList.toggle('selected', selected);
+            card.setAttribute('aria-pressed', String(selected));
+        });
+        const hint = document.getElementById('engineModeHint');
+        if (hint) hint.textContent = (ENGINE_MODES[mode] || ENGINE_MODES.auto).hint;
+        UpdateProfileApplicability();
+    }
+
+    function UpdateProfileApplicability() {
+        const mode = localStorage.getItem('engineMode') || 'auto';
+        const box = document.getElementById('profileApplicability');
+        const title = document.getElementById('profileApplicabilityTitle');
+        const copy = document.getElementById('profileApplicabilityCopy');
+        const grid = document.querySelector('.bypass-profile-grid');
+        if (!box || !title || !copy || !grid) return;
+        const applies = mode === 'winws' || mode === 'auto';
+        grid.classList.toggle('inactive-engine', !applies);
+        grid.querySelectorAll('.bypass-profile-card').forEach((card) => card.setAttribute('aria-disabled', String(!applies)));
+        if (mode === 'winws') {
+            title.textContent = 'ЭТИ ПРОФИЛИ — ТОЛЬКО ДЛЯ ZAPRET';
+            copy.textContent = 'Они переключают технические стратегии winws. Выберите профиль по типу проблемы и затем включите обход.';
+        } else if (mode === 'auto') {
+            title.textContent = 'ПРОФИЛЬ ИСПОЛЬЗУЕТСЯ, ЕСЛИ «АВТО» ВЫБЕРЕТ ZAPRET';
+            copy.textContent = 'На обычном ПК выбранный профиль применяется к Zapret. На HP режим «Авто» может выбрать ByeDPI — тогда у него используются собственные настройки.';
+        } else {
+            title.textContent = 'ДЛЯ ЭТОГО ДВИЖКА ПРОФИЛЬ НЕ НУЖЕН';
+            copy.textContent = `${ENGINE_MODES[mode] ? modeName(mode) : 'Выбранный движок'} использует собственную настроенную схему. Карточки ниже относятся только к Zapret/winws.`;
+        }
+    }
+
+    function modeName(mode) {
+        return ({ byedpi: 'ByeDPI', dpibreak: 'DPIBreak', goodbyedpi: 'GoodbyeDPI', greentunnel: 'GreenTunnel', winws: 'Zapret', auto: 'Авто' })[mode] || mode;
+    }
+
+    function SelectEngineMode(mode) {
+        if (!ENGINE_MODES[mode]) return;
+        if (isRunning) {
+            alert('Сначала выключите обход. Приложение не переключает сетевой движок на ходу.');
+            return;
+        }
+        localStorage.setItem('engineMode', mode);
+        UpdateEngineModeCards();
+        logMsg(`[ДВИЖОК] Выбран режим: ${mode}.`);
+    }
+
+    const BYPASS_PROFILES = {
+        balanced: {
+            match: 'Комбо — YouTube + Discord + Roblox',
+            hint: 'Только Zapret: общий профиль для YouTube, Discord, Roblox, QUIC/UDP и сайтов из встроенных списков.'
+        },
+        compatible: {
+            match: 'Универсал 8 — BadSeq-2 (мягкий)',
+            hint: 'Только Zapret: мягкая стратегия BadSeq-2. Нужна, когда усиленные варианты ломают обычные сайты или нестабильны на конкретном ПК.'
+        },
+        sni: {
+            match: 'Универсал 7 — SNI-split + SynData',
+            hint: 'Только Zapret: разделение TLS/SNI. Нужен, когда DNS находит сайт, TCP подключается, но защищённое соединение обрывается.'
+        },
+        strong: {
+            match: 'Универсал 10 — Max.ru TLS + x11',
+            hint: 'Только Zapret: усиленная стратегия Max.ru TLS + x11 для строгой фильтрации, когда остальные профили winws не помогли.'
+        }
+    };
+
+    function FindBypassProfileOption(profileName) {
+        const profile = BYPASS_PROFILES[profileName];
+        const select = document.getElementById('stratSel');
+        if (!profile || !select) return null;
+        return Array.from(select.options).find(option => option.text.trim() === profile.match) || null;
+    }
+
+    function UpdateBypassProfileCards() {
+        const select = document.getElementById('stratSel');
+        const hint = document.getElementById('bypassProfileHint');
+        if (!select) return;
+        let selectedProfile = '';
+        for (const [profileName] of Object.entries(BYPASS_PROFILES)) {
+            const option = FindBypassProfileOption(profileName);
+            const active = !!option && option.value === select.value;
+            const card = document.querySelector(`.bypass-profile-card[data-profile="${profileName}"]`);
+            if (card) {
+                card.classList.toggle('selected', active);
+                card.setAttribute('aria-pressed', String(active));
+            }
+            if (active) selectedProfile = profileName;
+        }
+        if (hint) {
+            hint.textContent = selectedProfile
+                ? BYPASS_PROFILES[selectedProfile].hint
+                : `Выбрана расширенная стратегия: ${getSelectedStrategyName()}.`;
+        }
+    }
+
+    function ChooseBypassProfile(profileName) {
+        const engineMode = localStorage.getItem('engineMode') || 'auto';
+        if (!['auto', 'winws'].includes(engineMode)) {
+            alert(`${modeName(engineMode)} использует собственные настройки. Профили «Сбалансированный», «TLS / SNI» и другие предназначены только для Zapret.`);
+            return;
+        }
+        if (profileName === 'auto') {
+            AutoDetect();
+            return;
+        }
+        if (isRunning) {
+            alert('Сначала выключите обход, затем выберите новый профиль. Текущая рабочая стратегия не будет изменена на ходу.');
+            return;
+        }
+        const option = FindBypassProfileOption(profileName);
+        const select = document.getElementById('stratSel');
+        if (!option || !select) {
+            alert('Эта стратегия отсутствует в сборке. Обновите списки и повторите попытку.');
+            return;
+        }
+        select.value = option.value;
+        SaveStrategyChoice();
+        updateFavBtn();
+        logMsg(`[ПРОФИЛЬ] Выбран: ${option.text}.`);
+    }
+
+    function ReadNetworkStrategies() {
+        try { return JSON.parse(localStorage.getItem('networkStrategies') || '{}'); }
+        catch (_) { return {}; }
+    }
+
+    async function RestoreNetworkStrategy() {
+        try {
+            const profile = await ipcRenderer.invoke('network:get-profile');
+            currentNetworkProfile = profile && profile.ok ? profile : null;
+            const label = document.getElementById('galaxyNetworkName');
+            if (label) label.textContent = currentNetworkProfile ? currentNetworkProfile.name : 'Текущая сеть';
+            if (!currentNetworkProfile || localStorage.getItem('networkMemory') === 'false') return;
+            const saved = ReadNetworkStrategies()[currentNetworkProfile.signature];
+            const select = document.getElementById('stratSel');
+            if (saved && Array.from(select.options).some((option) => option.value === saved)) {
+                select.value = saved;
+                localStorage.setItem('savedStrategy', saved);
+                updateFavBtn();
+                UpdateBypassProfileCards();
+                SyncGalaxyStatus();
+                logMsg(`[СЕТЬ] Для «${currentNetworkProfile.name}» восстановлена сохранённая стратегия.`);
+            }
+        } catch (error) {
+            logMsg(`[СЕТЬ] Не удалось определить профиль: ${error.message}`);
+        }
+    }
+
+    function SaveNetworkStrategy() {
+        if (!currentNetworkProfile || localStorage.getItem('networkMemory') === 'false') return;
+        const strategies = ReadNetworkStrategies();
+        strategies[currentNetworkProfile.signature] = document.getElementById('stratSel').value;
+        localStorage.setItem('networkStrategies', JSON.stringify(strategies));
+    }
+
+    function ToggleNetworkMemory() {
+        const enabled = document.getElementById('networkMemoryChk').checked;
+        localStorage.setItem('networkMemory', String(enabled));
+        if (enabled) SaveNetworkStrategy();
     }
 
     function SaveExcludes() {
@@ -983,19 +1470,23 @@ textarea:focus { border-color: #444; color: #aaa; }
         logMsg('[OK] Белый список сохранён.');
     }
 
-    function Nuke() {
+    async function Nuke() {
         if (uiPreviewMode) {
             logMsg('[PREVIEW] Рабочий экземпляр не затронут.');
-            return;
+            return { ok: true };
         }
         const wasRunning = isRunning;
         isRunning = false;
         engineProcess = null;
-        try { execSync('taskkill /F /IM winws.exe /T', { stdio: 'ignore', windowsHide: true }); } catch(e){}
+        activeEngineInfo = null;
+        let response = null;
+        try { response = await ipcRenderer.invoke('engine:stop'); }
+        catch (error) { logMsg(`[!] Не удалось корректно остановить движок: ${error.message}`); }
         if (wasRunning) updateStatusUI('stopped', 'Движок не активен');
         stopPingMonitor();
         stopTimer();
         setTrayStatus('stopped');
+        return response;
     }
 
     async function StartEngine() {
@@ -1019,15 +1510,15 @@ textarea:focus { border-color: #444; color: #aaa; }
             engineToggleBusy = true;
             document.getElementById('mBtn').disabled = true;
             try {
-                Nuke();
+                await Nuke();
                 await new Promise((resolve) => setTimeout(resolve, 500));
-                updateStatusUI('stopped', 'Запускаем WinDivert и проверяем перехват...');
-                logMsg('[>>] Запуск движка и проверка WinDivert...');
+                updateStatusUI('stopped', 'Запускаем выбранный способ обхода...');
+                logMsg('[>>] Запуск и проверка выбранного способа обхода...');
                 await spawnEngine(strat);
                 isRunning = true;
-                updateStatusUI('running', stratName);
+                updateStatusUI('running', `${activeEngineInfo ? activeEngineInfo.label : 'Обход'} · ${stratName}`);
                 watchdogRestarts = 0;
-                logMsg('[▶] Запущено! WinDivert подтвердил перехват трафика.');
+                logMsg(`[▶] Запущено: ${activeEngineInfo ? activeEngineInfo.label : 'обход'}.`);
                 setTrayStatus('running');
                 startTimer();
                 startPingMonitor();
@@ -1043,7 +1534,7 @@ textarea:focus { border-color: #444; color: #aaa; }
                 document.getElementById('mBtn').disabled = false;
             }
         } else {
-            Nuke();
+            await Nuke();
             logMsg('[■] Остановлено.');
         }
     }
@@ -1101,11 +1592,12 @@ textarea:focus { border-color: #444; color: #aaa; }
         }
 
         const sel = document.getElementById('stratSel');
-        RunTestStep(0, targets, sel, autoBtn);
+        return RunTestStep(0, targets, sel, autoBtn);
     }
 
     async function RunTestStep(idx, targets, sel, autoBtn) {
         const total = sel.options.length;
+        let foundWorkingStrategy = false;
         try {
             for (; idx < total; idx++) {
                 if (cancelTest) {
@@ -1120,16 +1612,16 @@ textarea:focus { border-color: #444; color: #aaa; }
                 document.getElementById('statusSub').textContent   = `Тест ${idx + 1}/${total}: ${sName}`;
                 logMsg(`\n[*] (${idx + 1}/${total}) ${sName}`);
 
-                Nuke();
+                await Nuke();
                 await new Promise(r => setTimeout(r, 500));
                 try {
-                    await spawnEngine(sVal);
+                    await spawnEngine(sVal, 'winws');
                     logMsg('   [>] WinDivert запущен, проверяем сайты...');
                     await new Promise(r => setTimeout(r, 1500));
                 } catch (error) {
                     logMsg(`   [X] Движок не запустился: ${error.message}`);
                     testResults[sName] = { ok: 0, total: targets.length, engineError: error.message };
-                    Nuke();
+                    await Nuke();
                     await new Promise(r => setTimeout(r, 800));
                     continue;
                 }
@@ -1159,7 +1651,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 
                 testResults[sName] = { ok: okCount, total: targets.length };
 
-                Nuke();
+                await Nuke();
                 await new Promise(r => setTimeout(r, 1500));
             }
 
@@ -1176,6 +1668,7 @@ textarea:focus { border-color: #444; color: #aaa; }
                     if (res && res.ok > bestScore) { bestScore = res.ok; bestIdx = i; }
                 }
                 if (bestIdx >= 0 && bestScore > 0) {
+                    foundWorkingStrategy = true;
                     sel.selectedIndex = bestIdx;
                     SaveStrategyChoice();
                     const bestName  = sel.options[bestIdx].text;
@@ -1194,6 +1687,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         } finally {
             ResetAutoDetectState(autoBtn);
         }
+        return foundWorkingStrategy;
     }
 
     function ResetAutoDetectState(autoBtn) {
@@ -1209,7 +1703,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             document.getElementById('progressBar').style.width = '0%';
         }, 600);
         updateStatusUI('stopped', 'Движок не активен');
-        Nuke();
+        void Nuke();
     }
 
     function formatUptime(ms) {
@@ -1252,13 +1746,61 @@ textarea:focus { border-color: #444; color: #aaa; }
             const start = Date.now();
             let done = false;
             const finish = (ms, req) => { if (!done) { done = true; if (req) req.destroy(); resolve(ms); } };
-            const req = https.get(url, { timeout: 4000, headers: { 'User-Agent': 'ZapretElectron/6.9' } }, (res) => {
+            const req = https.get(url, { timeout: 4000, headers: { 'User-Agent': 'ZapretElectron/7.1' } }, (res) => {
                 res.resume();
                 finish(Date.now() - start, req);
             });
             req.on('error',   () => finish(null));
             req.on('timeout', () => finish(null, req));
         });
+    }
+
+    function ToggleAvailabilityRepair() {
+        const enabled = document.getElementById('availabilityRepairChk').checked;
+        localStorage.setItem('availabilityRepair', String(enabled));
+        availabilityRepairFailures = 0;
+        RestartAvailabilityRepairMonitor();
+    }
+
+    function RestartAvailabilityRepairMonitor() {
+        if (availabilityRepairTimer) clearInterval(availabilityRepairTimer);
+        availabilityRepairTimer = null;
+        if (localStorage.getItem('availabilityRepair') !== 'true') return;
+        availabilityRepairTimer = setInterval(() => CheckAvailabilityRepair().catch(() => {}), 90 * 1000);
+    }
+
+    async function CheckAvailabilityRepair() {
+        if (!isRunning || isAutoDetecting || engineToggleBusy || availabilityRepairBusy) {
+            availabilityRepairFailures = 0;
+            return;
+        }
+        if (Date.now() - availabilityRepairLastRun < 30 * 60 * 1000) return;
+        const control = await measureLatency('https://www.microsoft.com/');
+        if (control === null || !isRunning) return;
+        const [youtube, discord] = await Promise.all([
+            measureLatency('https://www.youtube.com/generate_204'),
+            measureLatency('https://discord.com/')
+        ]);
+        if (youtube !== null || discord !== null) {
+            availabilityRepairFailures = 0;
+            return;
+        }
+        availabilityRepairFailures++;
+        logMsg(`[АВТОПОЧИНКА] Сервисы не ответили: ${availabilityRepairFailures}/3.`);
+        if (availabilityRepairFailures < 3 || !isRunning) return;
+        availabilityRepairFailures = 0;
+        availabilityRepairLastRun = Date.now();
+        availabilityRepairBusy = true;
+        try {
+            notifyUser('Доступ к сервисам пропал. Запущен автоматический подбор стратегии.');
+            const found = await AutoDetect();
+            if (found && !isRunning && !isAutoDetecting) {
+                await StartEngine();
+                logMsg('[АВТОПОЧИНКА] Рабочая стратегия подобрана и запущена.');
+            }
+        } finally {
+            availabilityRepairBusy = false;
+        }
     }
 
     async function updatePing() {
@@ -1271,6 +1813,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         const fmt = ms => ms !== null ? `${ms}ms` : '---';
         latestPingText = `YT:${fmt(yt)} DC:${fmt(dc)}`;
         document.getElementById('pingLine').textContent = latestPingText;
+        SyncGalaxyStatus();
         sendTraySnapshot();
     }
 
@@ -1288,6 +1831,7 @@ textarea:focus { border-color: #444; color: #aaa; }
         const line = document.getElementById('pingLine');
         if (line) line.textContent = '---';
         latestPingText = '---';
+        SyncGalaxyStatus();
     }
 
     function fetchText(url, redirects = 0) {
@@ -1302,7 +1846,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             const request = https.get(requestUrl, {
                 timeout: 12000,
                 headers: {
-                    'User-Agent': 'Zapret-Electron/6.9',
+                    'User-Agent': 'Zapret-Electron/7.1',
                     'Cache-Control': 'no-cache',
                     'Pragma': 'no-cache',
                     'Accept': 'text/plain,*/*;q=0.8'
@@ -1398,7 +1942,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             logMsg('[>>] Перезапуск движка с новыми списками...');
             const strat     = document.getElementById('stratSel').value;
             const stratName = document.getElementById('stratSel').options[document.getElementById('stratSel').selectedIndex].text;
-            Nuke();
+            await Nuke();
             await new Promise(r => setTimeout(r, 1000));
             try {
                 await spawnEngine(strat);
@@ -1445,6 +1989,8 @@ textarea:focus { border-color: #444; color: #aaa; }
         const el = document.getElementById(resultId);
         el.textContent = '...';
         el.className = 'test-result';
+        const galaxyResultId = resultId === 'ytRes' ? 'galaxyYtState' : (resultId === 'dcRes' ? 'galaxyDcState' : null);
+        if (galaxyResultId) UpdateGalaxyServiceState(galaxyResultId, 'Проверяем…', 'pending');
         if (url) {
             const started = Date.now();
             let done = false;
@@ -1454,8 +2000,9 @@ textarea:focus { border-color: #444; color: #aaa; }
                 if (req && !ok) req.destroy();
                 el.textContent = ok ? `✓ ОК ${Date.now() - started}мс` : '? нет ответа';
                 el.className = ok ? 'test-result ok' : 'test-result';
+                if (galaxyResultId) UpdateGalaxyServiceState(galaxyResultId, ok ? 'Доступен' : 'Нет ответа', ok ? 'ok' : 'error');
             };
-            const req = https.get(url, { timeout: 5000, headers: { 'User-Agent': 'ZapretElectron/6.9' } }, (res) => {
+            const req = https.get(url, { timeout: 5000, headers: { 'User-Agent': 'ZapretElectron/7.1' } }, (res) => {
                 res.resume();
                 finish(true, req);
             });
@@ -1511,6 +2058,83 @@ textarea:focus { border-color: #444; color: #aaa; }
         });
     }
 
+    function ApplyAdvancedMode() {
+        const enabled = localStorage.getItem('advancedMode') === 'true';
+        const panel = document.getElementById('legacyUi');
+        if (panel) panel.classList.toggle('advanced-mode', enabled);
+    }
+
+    function ToggleAdvancedMode(forceValue) {
+        const checkbox = document.getElementById('advancedModeChk');
+        if (typeof forceValue === 'boolean') checkbox.checked = forceValue;
+        localStorage.setItem('advancedMode', String(checkbox.checked));
+        ApplyAdvancedMode();
+    }
+
+    function BuildSettingsBackup() {
+        const keys = [
+            'savedStrategy', 'favoriteStrategy', 'quietMode', 'dnsProfile',
+            'networkMemory', 'networkStrategies', 'availabilityRepair', 'advancedMode', 'engineMode'
+        ];
+        const settings = {};
+        for (const key of keys) {
+            const value = localStorage.getItem(key);
+            if (value !== null) settings[key] = value;
+        }
+        return {
+            schemaVersion: 1,
+            app: 'Zapret Pro',
+            createdAt: new Date().toISOString(),
+            settings,
+            testSites: document.getElementById('testSites').value,
+            excludes: document.getElementById('excludeArea').value
+        };
+    }
+
+    async function ExportSettingsBackup() {
+        const result = await ipcRenderer.invoke('settings:export', BuildSettingsBackup());
+        if (result.ok) alert(`Настройки сохранены:\n${result.filePath}`);
+        else if (!result.canceled) alert(`Не удалось сохранить настройки: ${result.error}`);
+    }
+
+    async function ImportSettingsBackup() {
+        const result = await ipcRenderer.invoke('settings:import');
+        if (!result.ok) {
+            if (!result.canceled) alert(`Не удалось открыть настройки: ${result.error}`);
+            return;
+        }
+        const allowed = new Set([
+            'savedStrategy', 'favoriteStrategy', 'quietMode', 'dnsProfile',
+            'networkMemory', 'networkStrategies', 'availabilityRepair', 'advancedMode', 'engineMode'
+        ]);
+        for (const [key, value] of Object.entries(result.data.settings || {})) {
+            if (allowed.has(key) && typeof value === 'string' && value.length < 250000) localStorage.setItem(key, value);
+        }
+        if (typeof result.data.testSites === 'string') document.getElementById('testSites').value = result.data.testSites.slice(0, 10000);
+        if (typeof result.data.excludes === 'string') {
+            document.getElementById('excludeArea').value = result.data.excludes.slice(0, 250000);
+            SaveExcludes();
+        }
+        const select = document.getElementById('stratSel');
+        const strategy = localStorage.getItem('favoriteStrategy') || localStorage.getItem('savedStrategy');
+        if (strategy && Array.from(select.options).some((option) => option.value === strategy)) select.value = strategy;
+        const dnsProfile = localStorage.getItem('dnsProfile');
+        if (['secure', 'smartAi'].includes(dnsProfile)) document.getElementById('dnsProfileSel').value = dnsProfile;
+        document.getElementById('quietModeChk').checked = getQuietMode();
+        document.getElementById('networkMemoryChk').checked = localStorage.getItem('networkMemory') !== 'false';
+        document.getElementById('availabilityRepairChk').checked = localStorage.getItem('availabilityRepair') === 'true';
+        document.getElementById('advancedModeChk').checked = localStorage.getItem('advancedMode') === 'true';
+        ApplyAdvancedMode();
+        UpdateEngineModeCards();
+        RestartAvailabilityRepairMonitor();
+        UpdateDnsProfileHint();
+        updateFavBtn();
+        UpdateBypassProfileCards();
+        SyncGalaxyStatus();
+        await RestoreNetworkStrategy();
+        alert('Настройки восстановлены. DNS и обход не включались автоматически.');
+    }
+
     function ExportReport() {
         const desktopPath = path.join(os.homedir(), 'Desktop', 'Zapret_Report.txt');
         let report = '=== ОТЧЕТ ZAPRET ELECTRON ===\n\n' + document.getElementById('logArea').value + '\n\n';
@@ -1544,11 +2168,15 @@ textarea:focus { border-color: #444; color: #aaa; }
         document.getElementById('diagnosticMeta').textContent = `${result.target.label} · уверенность: ${diagnosis.confidence}`;
         document.getElementById('diagnosticCopy').textContent = diagnosis.detail;
         document.getElementById('diagnosticAdvice').textContent = diagnosis.advice;
+        UpdateDiagnosticAction(diagnosis);
 
         RenderSignal('signalSystemDns', result.evidence.systemDns, `ОК · ${(result.evidence.systemDns.addresses || []).slice(0, 2).join(', ')}`);
         RenderSignal('signalPublicDns', result.evidence.publicDns, `ОК · ${(result.evidence.publicDns.addresses || []).slice(0, 2).join(', ')}`);
         RenderSignal('signalTcp', result.evidence.tcp, 'соединение');
+        RenderSignal('signalIpv6', result.evidence.tcp6, 'маршрут');
         RenderSignal('signalTls', result.evidence.tls, 'handshake');
+        RenderSignal('signalTls12', result.evidence.tls12, 'handshake');
+        RenderSignal('signalTls13', result.evidence.tls13, 'handshake');
         RenderSignal('signalHttps', result.evidence.https, 'ответ получен');
         const controlsOk = result.evidence.controls.filter((item) => item.ok && item.status > 0 && item.status < 500).length;
         const controlsEl = document.getElementById('signalInternet');
@@ -1579,6 +2207,41 @@ textarea:focus { border-color: #444; color: #aaa; }
         document.getElementById('exportDiagnosticBtn').disabled = false;
     }
 
+    function UpdateDiagnosticAction(diagnosis) {
+        const button = document.getElementById('diagnosticActionBtn');
+        if (!button) return;
+        const code = diagnosis && diagnosis.code;
+        const actions = {
+            dns: ['dns', 'ОТКРЫТЬ DNS'],
+            'dns-or-domain': ['dns', 'ПРОВЕРИТЬ DNS'],
+            dpi: ['profile:sni', 'ВЫБРАТЬ TLS / SNI'],
+            'ip-filter': ['profile:strong', 'ВЫБРАТЬ УСИЛЕННЫЙ'],
+            'block-page': ['profile:strong', 'ВЫБРАТЬ УСИЛЕННЫЙ'],
+            'https-filter': ['profile:strong', 'ВЫБРАТЬ УСИЛЕННЫЙ']
+        };
+        const action = actions[code];
+        button.style.display = action ? '' : 'none';
+        if (!action) {
+            button.dataset.action = '';
+            return;
+        }
+        button.dataset.action = action[0];
+        button.textContent = action[1];
+    }
+
+    function ApplyDiagnosticRecommendation() {
+        const action = document.getElementById('diagnosticActionBtn')?.dataset.action || '';
+        if (action === 'dns') {
+            OpenGalaxyService('dns', 'DNS · рекомендация диагностики');
+            return;
+        }
+        if (action.startsWith('profile:')) {
+            const profileName = action.slice('profile:'.length);
+            OpenSideWorkspace('bypass', 'Рекомендованный профиль', 'profiles', 'profiles');
+            ChooseBypassProfile(profileName);
+        }
+    }
+
     async function RunSystemDiagnostics() {
         const button = document.getElementById('runDiagnosticBtn');
         const target = document.getElementById('diagnosticTarget').value;
@@ -1600,6 +2263,7 @@ textarea:focus { border-color: #444; color: #aaa; }
             document.getElementById('diagnosticMeta').textContent = 'ОШИБКА';
             document.getElementById('diagnosticCopy').textContent = error.message;
             document.getElementById('diagnosticAdvice').textContent = 'Повторите проверку или перезапустите приложение.';
+            UpdateDiagnosticAction(null);
         } finally {
             button.disabled = false;
             button.textContent = 'ЗАПУСТИТЬ ДИАГНОСТИКУ';
@@ -1772,6 +2436,11 @@ textarea:focus { border-color: #444; color: #aaa; }
             detail.textContent = status.error || 'Запускается только вручную и выключается вместе с приложением.';
             toggle.textContent = 'ЗАПУСТИТЬ И ПОДКЛЮЧИТЬ';
         }
+        UpdateGalaxyServiceState(
+            'galaxyTgState',
+            status.telegramConnected ? 'Подключён' : (status.running ? 'WS запущен' : 'WS выключен'),
+            status.telegramConnected ? 'ok' : (status.error ? 'error' : 'pending')
+        );
     }
 
     async function TgWsRefreshStatus() {
@@ -2195,13 +2864,273 @@ textarea:focus { border-color: #444; color: #aaa; }
             finishSearch();
         }
     }
+    let galaxyParticles = [];
+    let galaxyFrame = 0;
+    let galaxyLastFrame = 0;
+
+    function GalaxyRandom(seed) {
+        let value = seed >>> 0;
+        return () => {
+            value += 0x6D2B79F5;
+            let next = value;
+            next = Math.imul(next ^ next >>> 15, next | 1);
+            next ^= next + Math.imul(next ^ next >>> 7, next | 61);
+            return ((next ^ next >>> 14) >>> 0) / 4294967296;
+        };
+    }
+
+    function BuildGalaxyParticles(width, height) {
+        const random = GalaxyRandom(73427);
+        const radius = Math.min(width, height) * .48;
+        const count = Math.max(760, Math.min(1900, Math.round(width * height / 330)));
+        galaxyParticles = [];
+        for (let i = 0; i < count; i++) {
+            const layerRoll = random();
+            const progress = layerRoll < .18
+                ? Math.pow(random(), 1.8)
+                : (layerRoll > .9 ? .72 + random() * .38 : Math.pow(random(), .68));
+            const orbit = random() * Math.PI * 2;
+            const looseFlow = Math.sin(progress * 8.7 + random() * 2.4) * .22;
+            const angle = orbit + looseFlow + (random() - .5) * .34;
+            galaxyParticles.push({
+                radius: 10 + progress * radius * (.9 + random() * .16),
+                angle,
+                speed: .014 + (1 - progress) * .055 + (random() - .5) * .006,
+                size: random() > .9 ? 2 : 1,
+                alpha: .22 + random() * .72,
+                yScale: .61 + random() * .13,
+                drift: (random() - .5) * .16,
+                twist: 1.3 + random() * .8
+            });
+        }
+    }
+
+    function ResizeGalaxy() {
+        const canvas = document.getElementById('galaxyCanvas');
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+        canvas.width = Math.max(1, Math.round(rect.width * ratio));
+        canvas.height = Math.max(1, Math.round(rect.height * ratio));
+        canvas.dataset.ratio = ratio;
+        BuildGalaxyParticles(rect.width, rect.height);
+    }
+
+    function DrawGalaxy(time) {
+        const canvas = document.getElementById('galaxyCanvas');
+        if (!canvas) return;
+        galaxyFrame = requestAnimationFrame(DrawGalaxy);
+        if (document.hidden || time - galaxyLastFrame < 32) return;
+        galaxyLastFrame = time;
+        const ratio = Number(canvas.dataset.ratio || 1);
+        const width = canvas.width / ratio;
+        const height = canvas.height / ratio;
+        const ctx = canvas.getContext('2d', { alpha: false });
+        ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, width, height);
+        const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const phase = still ? 0 : time / 1000;
+        const cx = width / 2;
+        const cy = height / 2;
+        for (const particle of galaxyParticles) {
+            const radialRatio = particle.radius / Math.max(1, Math.min(width, height) * .48);
+            const angle = particle.angle + phase * particle.speed + radialRatio * particle.twist;
+            const wobble = Math.sin(phase * .09 + particle.angle * 3.1) * particle.drift;
+            const x = cx + Math.cos(angle) * particle.radius * (1 + wobble);
+            const y = cy + Math.sin(angle) * particle.radius * particle.yScale * (1 - wobble * .5);
+            if (x < 0 || y < 0 || x > width || y > height) continue;
+            ctx.globalAlpha = particle.alpha;
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(Math.round(x), Math.round(y), particle.size, particle.size);
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    function InitGalaxyShell() {
+        ResizeGalaxy();
+        window.addEventListener('resize', ResizeGalaxy);
+        if (!galaxyFrame) galaxyFrame = requestAnimationFrame(DrawGalaxy);
+        SyncGalaxyStatus();
+        CloseSideWorkspace();
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape') CloseSideWorkspace();
+        });
+    }
+
+    function SyncGalaxyStatus() {
+        const title = document.getElementById('galaxyStateTitle');
+        const dot = document.getElementById('galaxyStateDot');
+        const power = document.getElementById('galaxyPowerBtn');
+        const meta = document.getElementById('galaxyStateMeta');
+        if (!title || !dot || !power) return;
+        title.textContent = isRunning ? 'ОБХОД АКТИВЕН' : 'ОБХОД ОСТАНОВЛЕН';
+        title.classList.toggle('running', isRunning);
+        dot.classList.toggle('running', isRunning);
+        power.textContent = isRunning ? '■ ВЫКЛЮЧИТЬ' : '▶ ВКЛЮЧИТЬ';
+        if (meta) {
+            const strategy = getSelectedStrategyName();
+            const ping = latestPingText && latestPingText !== '---' ? latestPingText : 'ожидание';
+            meta.textContent = `${strategy} · ${ping}`;
+            meta.title = strategy;
+        }
+    }
+
+    function UpdateGalaxyServiceState(id, label, state = 'pending') {
+        const element = document.getElementById(id);
+        if (!element) return;
+        element.textContent = label;
+        element.classList.remove('pending', 'error');
+        if (state !== 'ok') element.classList.add(state);
+        UpdateGalaxyHealth();
+    }
+
+    function UpdateGalaxyHealth() {
+        const health = document.getElementById('galaxyHealth');
+        const yt = document.getElementById('galaxyYtState');
+        const dc = document.getElementById('galaxyDcState');
+        if (!health || !yt || !dc) return;
+        if (yt.classList.contains('error') || dc.classList.contains('error')) {
+            health.textContent = 'Некоторые сервисы не ответили';
+        } else if (!yt.classList.contains('pending') && !dc.classList.contains('pending')) {
+            health.textContent = 'Проверенные сервисы доступны';
+        } else {
+            health.textContent = 'Готово к проверке';
+        }
+    }
+
+    function MarkGalaxyNav(section) {
+        document.querySelectorAll('.galaxy-nav-btn').forEach(button => {
+            button.classList.toggle('active', button.dataset.section === section);
+        });
+    }
+
+    function ApplyWorkspaceView(view = 'full') {
+        const panel = document.getElementById('legacyUi');
+        if (!panel) return;
+        panel.classList.remove('workspace-view-profiles', 'workspace-view-settings', 'workspace-view-journal');
+        if (['profiles', 'settings', 'journal'].includes(view)) panel.classList.add(`workspace-view-${view}`);
+    }
+
+    function OpenSideWorkspace(mode, title, section, view = 'full') {
+        SetMode(mode);
+        ApplyWorkspaceView(view);
+        document.getElementById('workspaceTitle').textContent = title;
+        const panel = document.getElementById('legacyUi');
+        panel.classList.add('open');
+        panel.setAttribute('aria-hidden', 'false');
+        MarkGalaxyNav(section || (mode === 'system' ? 'diagnostics' : 'services'));
+        document.querySelector('.workspace-scroll').scrollTop = 0;
+    }
+
+    function CloseSideWorkspace(section = 'home') {
+        const panel = document.getElementById('legacyUi');
+        if (panel) {
+            panel.classList.remove('open');
+            panel.setAttribute('aria-hidden', 'true');
+        }
+        MarkGalaxyNav(section);
+    }
+
+    function SetGalaxySection(section) {
+        if (section === 'home') {
+            CloseSideWorkspace(section);
+            return;
+        }
+        if (section === 'profiles') OpenSideWorkspace('bypass', 'Профили обхода', section, 'profiles');
+        if (section === 'diagnostics') OpenSideWorkspace('system', 'Диагностика', section);
+        if (section === 'settings') OpenSideWorkspace('bypass', 'Настройки', section, 'settings');
+    }
+
+    function OpenGalaxyService(mode, title) {
+        OpenSideWorkspace(mode, title, mode === 'bypass' ? 'profiles' : 'home', mode === 'bypass' ? 'profiles' : 'full');
+    }
+
+    function RunGalaxyChecks() {
+        RunQuickTests();
+        CheckDNS();
+        OpenSideWorkspace('system', 'Диагностика', 'diagnostics');
+    }
+
+    function OpenGalaxyJournal() {
+        ToggleAdvancedMode(true);
+        OpenSideWorkspace('bypass', 'Журнал', 'settings', 'journal');
+        setTimeout(() => document.getElementById('logArea')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 180);
+    }
+
+    function OpenUpdateWorkspace() {
+        OpenSideWorkspace('system', 'Обновление', 'settings');
+        CheckAppUpdate(true);
+        setTimeout(() => document.getElementById('updateCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 180);
+    }
 </script>
 </head>
-<body onload="Init()">
+<body onload="Init(); InitGalaxyShell()">
+
+<div class="galaxy-shell" aria-label="Главный экран Zapret">
+    <aside class="galaxy-left">
+        <div class="galaxy-brand"><span class="pixel-star" aria-hidden="true"></span><span>ZAPRET</span></div>
+        <nav class="galaxy-nav" aria-label="Разделы приложения">
+            <button class="galaxy-nav-btn active" data-section="home" onclick="SetGalaxySection('home')"><span class="nav-glyph">⌂</span><span>ГЛАВНАЯ</span></button>
+            <button class="galaxy-nav-btn" data-section="profiles" onclick="SetGalaxySection('profiles')"><span class="nav-glyph">◇</span><span>ПРОФИЛИ</span></button>
+            <button class="galaxy-nav-btn" data-section="diagnostics" onclick="SetGalaxySection('diagnostics')"><span class="nav-glyph">⌁</span><span>ДИАГНОСТИКА</span></button>
+            <button class="galaxy-nav-btn" data-section="settings" onclick="SetGalaxySection('settings')"><span class="nav-glyph">⚙</span><span>НАСТРОЙКИ</span></button>
+        </nav>
+        <div class="galaxy-left-foot">
+            <div>v7.1</div>
+            <button class="galaxy-nav-btn galaxy-update-link" onclick="OpenUpdateWorkspace()">ОБНОВЛЕНИЕ</button>
+        </div>
+    </aside>
+
+    <main class="galaxy-stage">
+        <canvas id="galaxyCanvas" aria-hidden="true"></canvas>
+        <div class="galaxy-vignette"></div>
+        <div class="galaxy-center-status" aria-live="polite">
+            <div class="galaxy-state-line">
+                <span id="galaxyStateDot" class="galaxy-state-dot"></span>
+                <span id="galaxyStateTitle" class="galaxy-state-title">ОБХОД ОСТАНОВЛЕН</span>
+            </div>
+            <div id="galaxyNetworkName" class="galaxy-network">Текущая сеть</div>
+            <div id="galaxyStateMeta" class="galaxy-state-meta">Стратегия · ожидание</div>
+        </div>
+    </main>
+
+    <aside class="galaxy-right">
+        <button id="galaxyPowerBtn" class="galaxy-action galaxy-power" onclick="StartEngine()">▶ ВКЛЮЧИТЬ</button>
+        <div class="galaxy-section-label">БЫСТРЫЙ ДОСТУП</div>
+        <div class="galaxy-services">
+            <button class="galaxy-service" onclick="OpenGalaxyService('bypass','YouTube · стратегия')">
+                <span class="service-icon">▷</span><span><span class="service-name">YouTube</span><span id="galaxyYtState" class="service-state pending">Не проверено</span></span>
+            </button>
+            <button class="galaxy-service" onclick="OpenGalaxyService('bypass','Discord · стратегия')">
+                <span class="service-icon">◫</span><span><span class="service-name">Discord</span><span id="galaxyDcState" class="service-state pending">Не проверено</span></span>
+            </button>
+            <button class="galaxy-service" onclick="OpenGalaxyService('telegram','Telegram')">
+                <span class="service-icon">➤</span><span><span class="service-name">Telegram</span><span id="galaxyTgState" class="service-state pending">WS выключен</span></span>
+            </button>
+            <button class="galaxy-service" onclick="OpenGalaxyService('dns','DNS и нейросети')">
+                <span class="service-icon">✣</span><span><span class="service-name">Нейросети</span><span id="galaxyAiState" class="service-state pending">DNS выключен</span></span>
+            </button>
+        </div>
+        <div class="galaxy-secondary">
+            <button class="galaxy-mini-action" onclick="RunGalaxyChecks()">ПРОВЕРИТЬ ВСЁ</button>
+            <button class="galaxy-mini-action" onclick="AutoDetect()">ПОДОБРАТЬ СТРАТЕГИЮ</button>
+            <button class="galaxy-mini-action" onclick="OpenGalaxyJournal()">ЖУРНАЛ И ОТЧЁТ</button>
+        </div>
+        <div id="galaxyHealth" class="galaxy-health">Готово к проверке</div>
+    </aside>
+</div>
+
+<div id="legacyUi" class="legacy-ui" aria-hidden="true">
+<div class="workspace-head">
+    <div id="workspaceTitle" class="workspace-title">Параметры</div>
+    <button class="workspace-close" onclick="CloseSideWorkspace()" title="Закрыть">×</button>
+</div>
+<div class="workspace-scroll">
 
 <div class="header">
     <div class="logo">ZAPRET ELECTRON</div>
-    <div id="appVersion" class="version">v6.9</div>
+    <div id="appVersion" class="version">v7.2.1</div>
 </div>
 
 <div class="mode-toggle">
@@ -2216,7 +3145,7 @@ textarea:focus { border-color: #444; color: #aaa; }
 </div>
 
 <div id="modeBypass">
-<div id="statusCard" class="status-card">
+<div id="statusCard" class="status-card workspace-profile-section">
     <div id="statusDot" class="status-dot"></div>
     <div class="status-info">
         <div id="stText" class="status-title">ОСТАНОВЛЕН</div>
@@ -2227,12 +3156,69 @@ textarea:focus { border-color: #444; color: #aaa; }
     </div>
 </div>
 
-<div class="card">
-    <div class="card-title-row">
-        <div class="card-title" style="margin-bottom:0">Стратегия обхода</div>
-        <button id="favBtn" class="btn btn-ghost btn-icon" onclick="ToggleFavorite()" title="Сохранить как избранную">[★]</button>
+<div class="card workspace-profile-section">
+    <div class="card-title">Способ обхода</div>
+    <div class="engine-mode-grid">
+        <button class="engine-mode-card selected" data-engine="auto" aria-pressed="true" onclick="SelectEngineMode('auto')">
+            <span class="engine-mode-name">✦ АВТО</span><span class="engine-mode-meta">Автоматический выбор</span>
+        </button>
+        <button class="engine-mode-card" data-engine="winws" aria-pressed="false" onclick="SelectEngineMode('winws')">
+            <span class="engine-mode-name">ZAPRET</span><span class="engine-mode-meta">Полный · HTTPS/UDP/игры</span>
+        </button>
+        <button class="engine-mode-card" data-engine="byedpi" aria-pressed="false" onclick="SelectEngineMode('byedpi')">
+            <span class="engine-mode-name">BYEDPI</span><span class="engine-mode-meta">Без драйвера · HP</span>
+        </button>
+        <button class="engine-mode-card" data-engine="dpibreak" aria-pressed="false" onclick="SelectEngineMode('dpibreak')">
+            <span class="engine-mode-name">DPIBREAK</span><span class="engine-mode-meta">Лёгкий · HTTPS</span>
+        </button>
+        <button class="engine-mode-card" data-engine="goodbyedpi" aria-pressed="false" onclick="SelectEngineMode('goodbyedpi')">
+            <span class="engine-mode-name">GOODBYEDPI</span><span class="engine-mode-meta">Совместимый</span>
+        </button>
+        <button class="engine-mode-card" data-engine="greentunnel" aria-pressed="false" onclick="SelectEngineMode('greentunnel')">
+            <span class="engine-mode-name">GREENTUNNEL</span><span class="engine-mode-meta">Браузерный</span>
+        </button>
     </div>
-    <div class="select-wrap" style="margin-top:8px">
+    <div id="engineModeHint" class="engine-mode-hint"></div>
+</div>
+
+<div class="card workspace-profile-section">
+    <div class="card-title-row">
+        <div class="card-title" style="margin-bottom:0">Профиль обхода</div>
+        <button id="favBtn" class="btn btn-ghost btn-icon advanced-only" onclick="ToggleFavorite()" title="Сохранить техническую стратегию как избранную">[★]</button>
+    </div>
+    <div id="profileApplicability" class="profile-applicability">
+        <strong id="profileApplicabilityTitle">ЭТИ ПРОФИЛИ — ТОЛЬКО ДЛЯ ZAPRET</strong>
+        <span id="profileApplicabilityCopy">Они переключают технические стратегии winws.</span>
+    </div>
+    <div class="bypass-profile-grid">
+        <button class="bypass-profile-card auto" data-profile="auto" onclick="ChooseBypassProfile('auto')">
+            <span class="bypass-profile-name">✦ АВТОМАТИЧЕСКИЙ ПОДБОР</span>
+            <span class="bypass-profile-copy">Только Zapret: проверяет все стратегии winws и сохраняет лучшую для текущей сети.</span>
+        </button>
+        <button class="bypass-profile-card" data-profile="balanced" aria-pressed="false" onclick="ChooseBypassProfile('balanced')">
+            <span class="bypass-profile-name">СБАЛАНСИРОВАННЫЙ</span>
+            <span class="bypass-profile-copy">Только Zapret: YouTube, Discord, Roblox, сайты и UDP.</span>
+            <span class="bypass-profile-badge">Zapret · рекомендуется</span>
+        </button>
+        <button class="bypass-profile-card" data-profile="compatible" aria-pressed="false" onclick="ChooseBypassProfile('compatible')">
+            <span class="bypass-profile-name">СОВМЕСТИМЫЙ</span>
+            <span class="bypass-profile-copy">Только Zapret: мягкий BadSeq-2 для капризных сайтов.</span>
+            <span class="bypass-profile-badge">Zapret · минимум конфликтов</span>
+        </button>
+        <button class="bypass-profile-card" data-profile="sni" aria-pressed="false" onclick="ChooseBypassProfile('sni')">
+            <span class="bypass-profile-name">TLS / SNI</span>
+            <span class="bypass-profile-copy">Только Zapret: если DNS работает, а TLS-соединение обрывается.</span>
+            <span class="bypass-profile-badge">Zapret · точечный</span>
+        </button>
+        <button class="bypass-profile-card" data-profile="strong" aria-pressed="false" onclick="ChooseBypassProfile('strong')">
+            <span class="bypass-profile-name">УСИЛЕННЫЙ</span>
+            <span class="bypass-profile-copy">Только Zapret: строгая фильтрация, когда остальные не помогли.</span>
+            <span class="bypass-profile-badge">Zapret · усиленный</span>
+        </button>
+    </div>
+    <div id="bypassProfileHint" class="bypass-profile-hint">Выберите профиль или запустите автоматический подбор.</div>
+    <div class="select-wrap advanced-only strategy-technical">
+        <div class="proxy-hint" style="margin:0 0 6px">Техническая стратегия</div>
         <select id="stratSel" onchange="SaveStrategyChoice(); updateFavBtn()">
 
             <optgroup label="── КОМБО ──">
@@ -2257,7 +3243,7 @@ textarea:focus { border-color: #444; color: #aaa; }
     </div>
 </div>
 
-<div class="card">
+<div class="card workspace-profile-section">
     <div class="card-title-row">
         <div class="card-title" style="margin-bottom:0">Быстрый тест</div>
         <button class="btn btn-ghost btn-icon" onclick="RunQuickTests()">[↻]</button>
@@ -2274,7 +3260,7 @@ textarea:focus { border-color: #444; color: #aaa; }
     </div>
 </div>
 
-<div class="settings-stack">
+<div class="settings-stack workspace-settings-section">
     <label class="autostart-row">
         <input type="checkbox" id="autostartChk" onclick="ToggleAutostart()">
         <span class="autostart-label">Запускать вместе с Windows и сворачивать в трей</span>
@@ -2283,18 +3269,35 @@ textarea:focus { border-color: #444; color: #aaa; }
         <input type="checkbox" id="quietModeChk" onclick="ToggleQuietMode()">
         <span class="autostart-label">Тихий режим — без фоновых уведомлений</span>
     </label>
+    <label class="autostart-row">
+        <input type="checkbox" id="networkMemoryChk" onclick="ToggleNetworkMemory()">
+        <span class="autostart-label">Запоминать рабочую стратегию отдельно для каждой сети</span>
+    </label>
+    <label class="autostart-row">
+        <input type="checkbox" id="availabilityRepairChk" onclick="ToggleAvailabilityRepair()">
+        <span class="autostart-label">Автопочинка доступности после трёх подтверждённых сбоев</span>
+    </label>
+    <label class="autostart-row">
+        <input type="checkbox" id="advancedModeChk" onclick="ToggleAdvancedMode()">
+        <span class="autostart-label">Расширенный режим — тестовые домены, исключения и подробный журнал</span>
+    </label>
 </div>
 
-<div class="btn-row">
+<div class="btn-row workspace-settings-section">
+    <button class="btn btn-ghost" onclick="ExportSettingsBackup()">СОХРАНИТЬ НАСТРОЙКИ</button>
+    <button class="btn btn-ghost" onclick="ImportSettingsBackup()">ВОССТАНОВИТЬ</button>
+</div>
+
+<div class="btn-row workspace-profile-section">
     <button id="mBtn" class="btn btn-primary" onclick="StartEngine()">▶ ЗАПУСТИТЬ</button>
     <button id="autoBtn" class="btn btn-primary" onclick="AutoDetect()">✦ АВТОПОДБОР</button>
 </div>
 
-<div id="progressWrap" class="progress-wrap">
+<div id="progressWrap" class="progress-wrap workspace-profile-section">
     <div id="progressBar" class="progress-bar"></div>
 </div>
 
-<div class="grid">
+<div class="grid advanced-only workspace-profile-section">
     <div class="col">
         <div class="col-header">
             <span class="col-title">Сайты для теста</span>
@@ -2310,12 +3313,12 @@ textarea:focus { border-color: #444; color: #aaa; }
     </div>
 </div>
 
-<div class="log-title">Журнал</div>
-<textarea id="logArea" style="height:260px;" readonly></textarea>
+<div class="log-title advanced-only workspace-journal-section">Журнал</div>
+<textarea id="logArea" class="advanced-only workspace-journal-section" style="height:260px;" readonly></textarea>
 
-<div class="divider"></div>
+<div class="divider advanced-only workspace-journal-section"></div>
 
-<div class="bottom-bar">
+<div class="bottom-bar advanced-only workspace-journal-section">
     <button class="btn btn-ghost" onclick="ExportReport()">ОТЧЁТ</button>
     <button id="updateBtn" class="btn btn-ghost" onclick="UpdateLists()">[UPD]</button>
     <button class="btn btn-stop" style="flex:none;padding:10px 18px;" onclick="Nuke()">СБРОС</button>
@@ -2340,7 +3343,7 @@ textarea:focus { border-color: #444; color: #aaa; }
     <div class="card-title">Выберите DNS-профиль</div>
     <select id="dnsProfileSel" onchange="ChangeDnsProfile()" style="display:none">
         <option value="secure">Защищённый DNS — Cloudflare / Google</option>
-        <option value="smartAi">Smart DNS для нейросетей — Comss.one</option>
+        <option value="smartAi">Smart DNS для нейросетей — Comss DoH</option>
     </select>
     <div class="dns-profile-grid">
         <button class="dns-profile-card selected" data-profile="secure" aria-pressed="true" onclick="SelectDnsProfile('secure')">
@@ -2350,8 +3353,8 @@ textarea:focus { border-color: #444; color: #aaa; }
         </button>
         <button class="dns-profile-card" data-profile="smartAi" aria-pressed="false" onclick="SelectDnsProfile('smartAi')">
             <span class="dns-profile-name">DNS ДЛЯ НЕЙРОСЕТЕЙ</span>
-            <span class="dns-profile-copy">Точечный доступ к поддерживаемым ИИ-сервисам без полного VPN.</span>
-            <span class="dns-profile-meta">Comss.one · сторонний</span>
+            <span class="dns-profile-copy">Зашифрованный DNS для поддерживаемых ИИ-сервисов без полного VPN.</span>
+            <span class="dns-profile-meta">Comss DoH · два UDP-резерва</span>
         </button>
     </div>
     <label id="dnsMasterRow" class="autostart-row dns-master-row">
@@ -2400,13 +3403,17 @@ textarea:focus { border-color: #444; color: #aaa; }
     <div id="diagnosticMeta" class="diagnostic-result-meta"></div>
     <div id="diagnosticCopy" class="diagnostic-result-copy"></div>
     <div id="diagnosticAdvice" class="diagnostic-advice"></div>
+    <button id="diagnosticActionBtn" class="btn btn-primary" style="display:none;margin-top:10px" onclick="ApplyDiagnosticRecommendation()"></button>
     <div class="signal-grid">
         <div class="signal-item"><span class="signal-name">Интернет</span><span id="signalInternet" class="signal-value">—</span></div>
         <div class="signal-item"><span class="signal-name">Системный DNS</span><span id="signalSystemDns" class="signal-value">—</span></div>
         <div class="signal-item"><span class="signal-name">Публичный DoH</span><span id="signalPublicDns" class="signal-value">—</span></div>
-        <div class="signal-item"><span class="signal-name">TCP 443</span><span id="signalTcp" class="signal-value">—</span></div>
-        <div class="signal-item"><span class="signal-name">TLS / SNI</span><span id="signalTls" class="signal-value">—</span></div>
-        <div class="signal-item"><span class="signal-name">HTTPS</span><span id="signalHttps" class="signal-value">—</span></div>
+                <div class="signal-item"><span class="signal-name">TCP 443</span><span id="signalTcp" class="signal-value">—</span></div>
+                <div class="signal-item"><span class="signal-name">IPv6 / TCP 443</span><span id="signalIpv6" class="signal-value">—</span></div>
+                <div class="signal-item"><span class="signal-name">TLS / SNI</span><span id="signalTls" class="signal-value">—</span></div>
+                <div class="signal-item"><span class="signal-name">TLS 1.2</span><span id="signalTls12" class="signal-value">—</span></div>
+                <div class="signal-item"><span class="signal-name">TLS 1.3</span><span id="signalTls13" class="signal-value">—</span></div>
+                <div class="signal-item"><span class="signal-name">HTTPS</span><span id="signalHttps" class="signal-value">—</span></div>
     </div>
 </div>
 
@@ -2501,6 +3508,8 @@ textarea:focus { border-color: #444; color: #aaa; }
 <div class="log-title">Журнал</div>
 <textarea id="proxyLog" style="height:120px;" readonly></textarea>
 </div><!-- /modeTelegram -->
+</div><!-- /workspace-scroll -->
+</div><!-- /legacyUi -->
 
 </body>
 </html>

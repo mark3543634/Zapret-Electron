@@ -1,13 +1,15 @@
 const rcedit = require('rcedit');
 const path = require('path');
+const packageJson = require('./package.json');
 
 const buildDir = process.env.ZAPRET_BUILD_DIR || 'out';
 const exePath = path.join(__dirname, buildDir, 'ZapretPro-win32-x64', 'Zapret Electron.exe');
+const appVersion = packageJson.version;
 
 rcedit(exePath, {
   'requested-execution-level': 'requireAdministrator',
-  'file-version': '6.9.0',
-  'product-version': '6.9.0',
+  'file-version': appVersion,
+  'product-version': appVersion,
   'version-string': {
     ProductName: 'Zapret Electron',
     FileDescription: 'Обход DPI-блокировок, отдельный DNS, диагностика сети и безопасные обновления',

@@ -1,0 +1,5 @@
+*.exe binary
+*.dll binary
+*.sys binary
+*.bin binary
+vendor/green-tunnel/app/** -text

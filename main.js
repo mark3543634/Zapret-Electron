@@ -30,14 +30,17 @@ let trayState = {
 };
 let availableUpdate = null;
 let dohSocket = null;
+let dnsProxyProcess = null;
 let dohEnabled = false;
 let dohProfile = null;
+let dohPendingProfile = null;
 let dohExitBlocked = false;
 let dnsWatchdogStarted = false;
 let dohStats = { queries: 0, replies: 0, lastError: '', lastEndpoint: '' };
 let dnsHealthTimer = null;
 let dnsHealthFailures = 0;
 let dnsHealthState = 'idle';
+const dohEndpointCooldowns = new Map();
 let tgWsProcess = null;
 let tgWsStartedAt = 0;
 let tgWsLastError = '';
@@ -45,6 +48,10 @@ let tgWsRecentLog = [];
 let tgWsStopping = false;
 let tgWsConnectRequestedAt = 0;
 let tgWsRouteState = { route: null, seenAt: 0 };
+let bypassProcess = null;
+let bypassStopping = false;
+let bypassRuntime = { running: false, requestedMode: null, mode: null, label: '', pid: null, startedAt: null, lastError: '' };
+let proxyWatchdogStarted = false;
 
 const TG_WS_VERSION = '1.10.2';
 const TG_WS_PORT = 1443;
@@ -55,9 +62,23 @@ const DOH_ENDPOINTS = [
   { host: '1.0.0.1', servername: 'cloudflare-dns.com', label: 'Cloudflare 2' },
   { host: '8.8.8.8', servername: 'dns.google', label: 'Google' }
 ];
+const COMSS_DOH_ENDPOINTS = [
+  { host: '195.133.25.16', servername: 'dns.comss.one', label: 'Comss DoH' }
+];
 const DNS_PROFILES = {
-  secure: { addresses: ['127.0.0.1'], localProxy: true },
-  smartAi: { addresses: ['83.220.169.155', '212.109.195.93'], localProxy: false }
+  secure: {
+    addresses: ['127.0.0.1'],
+    localProxy: true,
+    endpoints: DOH_ENDPOINTS,
+    healthDomains: ['example.com']
+  },
+  smartAi: {
+    addresses: ['127.0.0.1'],
+    localProxy: true,
+    endpoints: COMSS_DOH_ENDPOINTS,
+    udpFallbacks: ['83.220.169.155', '212.109.195.93'],
+    healthDomains: ['chatgpt.com', 'gemini.google.com']
+  }
 };
 
 const UPDATE_REPOSITORY = 'mark3543634/Zapret-Electron';
@@ -69,6 +90,53 @@ const dnsRecoveryLogPath = () => path.join(app.getPath('userData'), 'dns-recover
 const tgWsStatePath = () => path.join(app.getPath('userData'), 'tg-ws-proxy-state.json');
 const tgWsLogPath = () => path.join(app.getPath('userData'), 'tg-ws-proxy.log');
 const tgWsBinaryPath = () => path.join(__dirname, 'bin', 'TgWsProxy-headless.exe');
+const dnsProxyBinaryPath = () => path.join(__dirname, 'vendor', 'dnsproxy', 'dnsproxy.exe');
+const dnsProxyLogPath = () => path.join(app.getPath('userData'), 'dnsproxy.log');
+const DNSPROXY_SHA256 = '284DC4B1220015F827EB1FBAA91587CA7D631DCBDBF67B361E49377522FC3236';
+const bypassStatePath = () => path.join(app.getPath('userData'), 'bypass-engine-state.json');
+const bypassLogPath = () => path.join(__dirname, 'engine.log');
+const proxyStatePath = () => path.join(app.getPath('userData'), 'system-proxy-state.json');
+const proxyWatchdogPath = () => path.join(app.getPath('userData'), 'proxy-recovery-watchdog.ps1');
+const proxyRecoveryLogPath = () => path.join(app.getPath('userData'), 'proxy-recovery.log');
+
+const BYPASS_COMPONENTS = {
+  winws: {
+    label: 'Zapret · полный',
+    binary: () => path.join(__dirname, 'winws.exe'),
+    sha256: '2DA71E80878DC270AC83F5893ECBB841F9752A57F1DA8FF9325636B4346BC632',
+    kind: 'windivert'
+  },
+  byedpi: {
+    label: 'Без драйвера · ByeDPI',
+    binary: () => path.join(__dirname, 'vendor', 'engines', 'byedpi', 'ciadpi.exe'),
+    sha256: 'EB53CEEEB981CC6735AC24BB1E51E725280B86630E80FDF19DDC4EE4A5B54EF4',
+    kind: 'socks',
+    port: 10809
+  },
+  dpibreak: {
+    label: 'HTTPS · DPIBreak',
+    binary: () => path.join(__dirname, 'vendor', 'engines', 'dpibreak', 'dpibreak.exe'),
+    sha256: 'AF825BC9A30B3455501D4B115DCB2662370F692BBF6B753FB65A653F9653CA5B',
+    kind: 'windivert'
+  },
+  goodbyedpi: {
+    label: 'Совместимый · GoodbyeDPI',
+    binary: () => path.join(__dirname, 'vendor', 'engines', 'goodbyedpi', 'goodbyedpi.exe'),
+    sha256: '331AC6C1D22BA5A0A217F3F27D0D823051869CAFC8B8EF7F2002FA2ACCEBC74E',
+    kind: 'windivert'
+  },
+  greentunnel: {
+    label: 'Браузерный · GreenTunnel',
+    binary: () => path.join(__dirname, 'vendor', 'green-tunnel', 'runtime', 'node.exe'),
+    sha256: 'BA4E6D110E8C1592A1ECD390F6B05F3DA124B13871A5BE62B341A07A853C6C32',
+    script: () => path.join(__dirname, 'vendor', 'green-tunnel', 'app', 'node_modules', 'green-tunnel', 'dist', 'main.js'),
+    scriptSha256: '1E6F77E82BC906E86B918FD672133A8B5B5B611AD834159C4F83A1205F5215EC',
+    appRoot: () => path.join(__dirname, 'vendor', 'green-tunnel', 'app'),
+    treeSha256: '8E827166F079F5A4A15D3292DC3149F662C5B8299AFD451D64C46CFF99D9BE6C',
+    kind: 'http',
+    port: 8000
+  }
+};
 
 function readTgWsState() {
   try {
@@ -322,6 +390,308 @@ function runPowerShell(command) {
   return (result.stdout || '').replace(/^\uFEFF/, '').trim();
 }
 
+function hashFile(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex').toUpperCase();
+}
+
+function hashDirectory(rootPath) {
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(fullPath);
+      else if (entry.isFile()) files.push(fullPath);
+    }
+  };
+  walk(rootPath);
+  const hash = crypto.createHash('sha256');
+  for (const filePath of files.sort()) {
+    hash.update(path.relative(rootPath, filePath).replace(/\\/g, '/'));
+    hash.update(Buffer.from([0]));
+    hash.update(fs.readFileSync(filePath));
+    hash.update(Buffer.from([0]));
+  }
+  return hash.digest('hex').toUpperCase();
+}
+
+function verifyBypassComponent(component) {
+  const binary = component.binary();
+  if (!fs.existsSync(binary)) throw new Error(`Компонент не найден: ${path.basename(binary)}`);
+  if (hashFile(binary) !== component.sha256) throw new Error(`Контрольная сумма ${path.basename(binary)} не совпала. Переустановите приложение.`);
+  if (component.script) {
+    const script = component.script();
+    if (!fs.existsSync(script) || hashFile(script) !== component.scriptSha256) {
+      throw new Error('Файлы GreenTunnel повреждены. Переустановите приложение.');
+    }
+  }
+  if (component.appRoot && hashDirectory(component.appRoot()) !== component.treeSha256) {
+    throw new Error('Зависимости GreenTunnel повреждены. Переустановите приложение.');
+  }
+  return binary;
+}
+
+function readJsonFile(filePath) {
+  try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); }
+  catch (_) { return null; }
+}
+
+function writeJsonFile(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2), 'utf8');
+}
+
+function notifyInternetSettingsChanged() {
+  try {
+    runPowerShell("Add-Type -Namespace WinInet -Name NativeMethods -MemberDefinition '[System.Runtime.InteropServices.DllImport(\"wininet.dll\", SetLastError=true)] public static extern bool InternetSetOption(System.IntPtr hInternet, int dwOption, System.IntPtr lpBuffer, int dwBufferLength);'; [WinInet.NativeMethods]::InternetSetOption([IntPtr]::Zero,39,[IntPtr]::Zero,0)|Out-Null; [WinInet.NativeMethods]::InternetSetOption([IntPtr]::Zero,37,[IntPtr]::Zero,0)|Out-Null");
+  } catch (_) {}
+}
+
+function captureSystemProxy() {
+  const output = runPowerShell("$k='HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'; $v=Get-ItemProperty -LiteralPath $k; $n=@($v.PSObject.Properties.Name); [pscustomobject]@{proxyEnable=[int]$v.ProxyEnable; hasProxyServer=[bool]($n -contains 'ProxyServer'); proxyServer=[string]$v.ProxyServer; hasProxyOverride=[bool]($n -contains 'ProxyOverride'); proxyOverride=[string]$v.ProxyOverride} | ConvertTo-Json -Compress");
+  return JSON.parse(output);
+}
+
+function writeProxyWatchdogScript() {
+  const script = [
+    "param([int]$ParentPid,[string]$StatePath,[string]$LogPath)",
+    "$ErrorActionPreference='Stop'",
+    "Wait-Process -Id $ParentPid -ErrorAction SilentlyContinue",
+    "if(-not (Test-Path -LiteralPath $StatePath)){exit 0}",
+    "try{",
+    " $s=Get-Content -LiteralPath $StatePath -Raw -Encoding UTF8|ConvertFrom-Json",
+    " $k='HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'",
+    " Set-ItemProperty -LiteralPath $k -Name ProxyEnable -Type DWord -Value ([int]$s.original.proxyEnable)",
+    " if($s.original.hasProxyServer){Set-ItemProperty -LiteralPath $k -Name ProxyServer -Value ([string]$s.original.proxyServer)}else{Remove-ItemProperty -LiteralPath $k -Name ProxyServer -ErrorAction SilentlyContinue}",
+    " if($s.original.hasProxyOverride){Set-ItemProperty -LiteralPath $k -Name ProxyOverride -Value ([string]$s.original.proxyOverride)}else{Remove-ItemProperty -LiteralPath $k -Name ProxyOverride -ErrorAction SilentlyContinue}",
+    " Add-Type -Namespace WinInet -Name NativeMethods -MemberDefinition '[System.Runtime.InteropServices.DllImport(\"wininet.dll\", SetLastError=true)] public static extern bool InternetSetOption(System.IntPtr hInternet, int dwOption, System.IntPtr lpBuffer, int dwBufferLength);'",
+    " [WinInet.NativeMethods]::InternetSetOption([IntPtr]::Zero,39,[IntPtr]::Zero,0)|Out-Null",
+    " [WinInet.NativeMethods]::InternetSetOption([IntPtr]::Zero,37,[IntPtr]::Zero,0)|Out-Null",
+    " Remove-Item -LiteralPath $StatePath -Force",
+    "}catch{Add-Content -LiteralPath $LogPath -Value ((Get-Date -Format o)+' '+$_.Exception.Message) -Encoding UTF8; exit 1}"
+  ].join('\r\n');
+  fs.writeFileSync(proxyWatchdogPath(), script, 'utf8');
+}
+
+function startProxyRecoveryWatchdog() {
+  if (proxyWatchdogStarted) return;
+  writeProxyWatchdogScript();
+  const child = spawn('powershell', [
+    '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
+    '-File', proxyWatchdogPath(), '-ParentPid', String(process.pid),
+    '-StatePath', proxyStatePath(), '-LogPath', proxyRecoveryLogPath()
+  ], { detached: true, windowsHide: true, stdio: 'ignore' });
+  child.unref();
+  proxyWatchdogStarted = true;
+}
+
+function enableSystemProxy(kind, port) {
+  if (!['socks', 'http'].includes(kind) || !Number.isInteger(port) || port < 1024 || port > 65535) {
+    throw new Error('Некорректные параметры локального прокси');
+  }
+  if (readJsonFile(proxyStatePath())) restoreSystemProxy();
+  const original = captureSystemProxy();
+  writeJsonFile(proxyStatePath(), { active: true, ownerPid: process.pid, createdAt: new Date().toISOString(), original });
+  startProxyRecoveryWatchdog();
+  const server = kind === 'socks'
+    ? `socks=127.0.0.1:${port}`
+    : `http=127.0.0.1:${port};https=127.0.0.1:${port}`;
+  try {
+    runPowerShell(`$k='HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'; Set-ItemProperty -LiteralPath $k -Name ProxyEnable -Type DWord -Value 1; Set-ItemProperty -LiteralPath $k -Name ProxyServer -Value '${server}'; Set-ItemProperty -LiteralPath $k -Name ProxyOverride -Value '<local>;localhost;127.*'`);
+    notifyInternetSettingsChanged();
+  } catch (error) {
+    restoreSystemProxy();
+    throw error;
+  }
+}
+
+function restoreSystemProxy() {
+  const state = readJsonFile(proxyStatePath());
+  if (!state || !state.original) return true;
+  const original = state.original;
+  const proxyServer = String(original.proxyServer || '').replace(/'/g, "''");
+  const proxyOverride = String(original.proxyOverride || '').replace(/'/g, "''");
+  runPowerShell(`$k='HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'; Set-ItemProperty -LiteralPath $k -Name ProxyEnable -Type DWord -Value ${Number(original.proxyEnable) ? 1 : 0}; if(${original.hasProxyServer ? '$true' : '$false'}){Set-ItemProperty -LiteralPath $k -Name ProxyServer -Value '${proxyServer}'}else{Remove-ItemProperty -LiteralPath $k -Name ProxyServer -ErrorAction SilentlyContinue}; if(${original.hasProxyOverride ? '$true' : '$false'}){Set-ItemProperty -LiteralPath $k -Name ProxyOverride -Value '${proxyOverride}'}else{Remove-ItemProperty -LiteralPath $k -Name ProxyOverride -ErrorAction SilentlyContinue}`);
+  notifyInternetSettingsChanged();
+  try { fs.unlinkSync(proxyStatePath()); } catch (_) {}
+  return true;
+}
+
+function isProcessAlive(child) {
+  return !!(child && child.exitCode === null && !child.killed);
+}
+
+function stopProcessTree(child) {
+  if (!child || !Number.isInteger(child.pid)) return;
+  spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+}
+
+function waitForPort(host, port, timeoutMs = 8000) {
+  return new Promise(async (resolve, reject) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (!isProcessAlive(bypassProcess)) return reject(new Error('Движок завершился до открытия локального порта'));
+      if (await canConnectTcp(host, port, 450)) return resolve(true);
+      await new Promise((done) => setTimeout(done, 180));
+    }
+    reject(new Error(`Локальный порт ${port} не открылся вовремя`));
+  });
+}
+
+function waitForStableProcess(child, timeoutMs = 1100) {
+  return new Promise(async (resolve, reject) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (!isProcessAlive(child)) return reject(new Error(`Движок завершился с кодом ${child ? child.exitCode : '—'}`));
+      await new Promise((done) => setTimeout(done, 100));
+    }
+    resolve(true);
+  });
+}
+
+function isHpSystem() {
+  try { return /\bHP\b|Hewlett[- ]Packard/i.test(runPowerShell("[string](Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).Manufacturer")); }
+  catch (_) { return false; }
+}
+
+function resolveBypassMode(requestedMode) {
+  const mode = String(requestedMode || 'auto').toLowerCase();
+  if (mode === 'auto') return isHpSystem() ? 'byedpi' : 'winws';
+  if (!BYPASS_COMPONENTS[mode]) throw new Error('Неизвестный режим обхода');
+  return mode;
+}
+
+function buildBypassArgs(mode, winwsArgs) {
+  if (mode === 'winws') return Array.isArray(winwsArgs) ? winwsArgs.map(String) : [];
+  if (mode === 'byedpi') return ['--ip', '127.0.0.1', '--port', '10809', '--split', '1', '--disorder', '3+s', '--mod-http=h,d', '--auto=torst', '--tlsrec', '1+s'];
+  if (mode === 'dpibreak') return ['--fake-autottl', '--segment-order', '1,2,0', '--no-splash', '--log-level', 'info'];
+  if (mode === 'goodbyedpi') return ['-5', '--blacklist', path.join(__dirname, 'vendor', 'engines', 'goodbyedpi', 'russia-blacklist.txt')];
+  if (mode === 'greentunnel') return [BYPASS_COMPONENTS.greentunnel.script(), '--host', '127.0.0.1', '--port', '8000', '--no-system-proxy', '--log-level', 'warn'];
+  return [];
+}
+
+function publishBypassEvent(type, detail = {}) {
+  sendToRenderer('engine:event', { type, ...detail, status: getBypassStatus() });
+}
+
+function getBypassStatus() {
+  return { ...bypassRuntime, running: isProcessAlive(bypassProcess) };
+}
+
+async function stopBypassEngine() {
+  const child = bypassProcess;
+  bypassStopping = true;
+  if (child) child.zapretExpectedStop = true;
+  try { restoreSystemProxy(); } catch (error) { bypassRuntime.lastError = `Не удалось восстановить прокси: ${error.message}`; }
+  if (child) stopProcessTree(child);
+  bypassProcess = null;
+  try { if (fs.existsSync(bypassStatePath())) fs.unlinkSync(bypassStatePath()); } catch (_) {}
+  bypassRuntime = { running: false, requestedMode: null, mode: null, label: '', pid: null, startedAt: null, lastError: bypassRuntime.lastError || '' };
+  bypassStopping = false;
+  return getBypassStatus();
+}
+
+async function startBypassEngine(request = {}) {
+  if (previewMode) throw new Error('В режиме предпросмотра обход не запускается');
+  await stopBypassEngine();
+  const requestedMode = String(request.mode || 'auto').toLowerCase();
+  const mode = resolveBypassMode(requestedMode);
+  const component = BYPASS_COMPONENTS[mode];
+  const binary = verifyBypassComponent(component);
+  const args = buildBypassArgs(mode, request.winwsArgs);
+  const logFile = bypassLogPath();
+  const fd = fs.openSync(logFile, 'w');
+  bypassStopping = false;
+  bypassRuntime = { running: false, requestedMode, mode, label: component.label, pid: null, startedAt: Date.now(), lastError: '' };
+  try {
+    bypassProcess = spawn(binary, args, {
+      cwd: path.dirname(binary), windowsHide: true,
+      stdio: ['ignore', fd, fd]
+    });
+  } finally {
+    fs.closeSync(fd);
+  }
+  const child = bypassProcess;
+  bypassRuntime.pid = child.pid;
+  writeJsonFile(bypassStatePath(), { pid: child.pid, mode, binary, ownerPid: process.pid, startedAt: new Date().toISOString() });
+  child.once('error', (error) => {
+    if (bypassProcess !== child) return;
+    bypassRuntime.lastError = error.message;
+    publishBypassEvent('error', { error: error.message });
+  });
+  child.once('exit', (code) => {
+    const expected = !!child.zapretExpectedStop;
+    if (bypassProcess !== child) return;
+    bypassProcess = null;
+    try { restoreSystemProxy(); } catch (_) {}
+    try { if (fs.existsSync(bypassStatePath())) fs.unlinkSync(bypassStatePath()); } catch (_) {}
+    bypassRuntime.running = false;
+    bypassRuntime.pid = null;
+    if (!expected) {
+      bypassRuntime.lastError = `Движок завершился с кодом ${code}`;
+      publishBypassEvent('exit', { code, error: bypassRuntime.lastError });
+    }
+  });
+
+  try {
+    if (mode === 'winws') {
+      const deadline = Date.now() + 6500;
+      let ready = false;
+      while (Date.now() < deadline && isProcessAlive(child)) {
+        const log = fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8') : '';
+        if (/windivert initialized\. capture is started\./i.test(log)) { ready = true; break; }
+        await new Promise((done) => setTimeout(done, 120));
+      }
+      if (!ready) throw new Error('WinDivert не подтвердил перехват трафика');
+    } else if (component.kind === 'socks' || component.kind === 'http') {
+      await waitForPort('127.0.0.1', component.port);
+      enableSystemProxy(component.kind, component.port);
+    } else {
+      await waitForStableProcess(child);
+    }
+    bypassRuntime.running = true;
+    return getBypassStatus();
+  } catch (error) {
+    bypassRuntime.lastError = error.message;
+    await stopBypassEngine();
+    throw error;
+  }
+}
+
+function cleanupStaleBypassState() {
+  try { restoreSystemProxy(); } catch (_) {}
+  const state = readJsonFile(bypassStatePath());
+  if (!state || !Number.isInteger(Number(state.pid))) return;
+  try {
+    const actual = runPowerShell(`$p=Get-CimInstance Win32_Process -Filter 'ProcessId = ${Number(state.pid)}' -ErrorAction SilentlyContinue; if($p){[string]$p.ExecutablePath}`);
+    const expected = String(state.binary || '');
+    if (actual && expected && path.resolve(actual).toLowerCase() === path.resolve(expected).toLowerCase()) {
+      spawnSync('taskkill', ['/PID', String(Number(state.pid)), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    }
+  } catch (_) {}
+  try { fs.unlinkSync(bypassStatePath()); } catch (_) {}
+}
+
+function getActiveNetworkProfile() {
+  try {
+    const output = runPowerShell("$rows=@(Get-NetConnectionProfile -ErrorAction SilentlyContinue | Where-Object {$_.IPv4Connectivity -ne 'Disconnected' -or $_.IPv6Connectivity -ne 'Disconnected'} | ForEach-Object {$adapter=Get-NetAdapter -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue; [pscustomobject]@{Name=[string]$_.Name; InterfaceAlias=[string]$_.InterfaceAlias; InterfaceIndex=[int]$_.InterfaceIndex; NetworkCategory=[string]$_.NetworkCategory; IPv4Connectivity=[string]$_.IPv4Connectivity; IPv6Connectivity=[string]$_.IPv6Connectivity; Physical=[bool]$adapter.HardwareInterface}}); $p=$rows | Sort-Object -Property @{Expression={if($_.Physical){0}else{1}}},@{Expression={if($_.IPv4Connectivity -eq 'Internet'){0}else{1}}} | Select-Object -First 1; if($p){$p | ConvertTo-Json -Compress}");
+    if (!output) return { ok: false, name: 'Текущая сеть', signature: 'unknown' };
+    const profile = JSON.parse(output);
+    const name = String(profile.Name || profile.InterfaceAlias || 'Текущая сеть');
+    const rawSignature = `${name}|${profile.InterfaceAlias || ''}|${profile.NetworkCategory || ''}`;
+    return {
+      ok: true,
+      name,
+      interfaceAlias: String(profile.InterfaceAlias || ''),
+      category: String(profile.NetworkCategory || ''),
+      ipv4: String(profile.IPv4Connectivity || ''),
+      ipv6: String(profile.IPv6Connectivity || ''),
+      signature: crypto.createHash('sha256').update(rawSignature).digest('hex').slice(0, 16)
+    };
+  } catch (error) {
+    return { ok: false, name: 'Текущая сеть', signature: 'unknown', error: error.message };
+  }
+}
+
 function readDohState() {
   try { return JSON.parse(fs.readFileSync(dohStatePath(), 'utf8')); }
   catch (_) { return null; }
@@ -476,7 +846,12 @@ function requestDoh(message, endpoint) {
 async function proxyDnsMessage(socket, message, rinfo) {
   dohStats.queries++;
   let lastError = null;
-  for (const endpoint of DOH_ENDPOINTS) {
+  const activeProfile = DNS_PROFILES[dohPendingProfile || dohProfile] || DNS_PROFILES.secure;
+  const endpoints = activeProfile.endpoints || DOH_ENDPOINTS;
+  const now = Date.now();
+  const readyEndpoints = endpoints.filter((endpoint) => (dohEndpointCooldowns.get(`${endpoint.host}|${endpoint.servername}`) || 0) <= now);
+  const cooledEndpoints = endpoints.filter((endpoint) => !readyEndpoints.includes(endpoint));
+  for (const endpoint of readyEndpoints) {
     try {
       const answer = await requestDoh(message, endpoint);
       if (!socket || socket !== dohSocket) return;
@@ -484,9 +859,42 @@ async function proxyDnsMessage(socket, message, rinfo) {
       dohStats.replies++;
       dohStats.lastEndpoint = endpoint.label;
       dohStats.lastError = '';
+      dohEndpointCooldowns.delete(`${endpoint.host}|${endpoint.servername}`);
       return;
     } catch (error) {
       lastError = error;
+      if (activeProfile.udpFallbacks && activeProfile.udpFallbacks.length) {
+        dohEndpointCooldowns.set(`${endpoint.host}|${endpoint.servername}`, Date.now() + 60 * 1000);
+      }
+    }
+  }
+  for (const address of (activeProfile.udpFallbacks || [])) {
+    try {
+      const answer = await requestUdpDns(message, address);
+      if (!socket || socket !== dohSocket) return;
+      socket.send(answer, rinfo.port, rinfo.address);
+      dohStats.replies++;
+      dohStats.lastEndpoint = `Comss UDP ${address}`;
+      dohStats.lastError = '';
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  // Если все UDP-резервы недоступны, даём временно отложенному DoH ещё один шанс.
+  for (const endpoint of cooledEndpoints) {
+    try {
+      const answer = await requestDoh(message, endpoint);
+      if (!socket || socket !== dohSocket) return;
+      socket.send(answer, rinfo.port, rinfo.address);
+      dohStats.replies++;
+      dohStats.lastEndpoint = endpoint.label;
+      dohStats.lastError = '';
+      dohEndpointCooldowns.delete(`${endpoint.host}|${endpoint.servername}`);
+      return;
+    } catch (error) {
+      lastError = error;
+      dohEndpointCooldowns.set(`${endpoint.host}|${endpoint.servername}`, Date.now() + 60 * 1000);
     }
   }
   dohStats.lastError = lastError ? lastError.message : 'DoH-серверы не ответили';
@@ -494,7 +902,29 @@ async function proxyDnsMessage(socket, message, rinfo) {
   if (servfail && socket === dohSocket) socket.send(servfail, rinfo.port, rinfo.address);
 }
 
-function startDohProxy() {
+function requestUdpDns(message, address, timeoutMs = 2400) {
+  return new Promise((resolve, reject) => {
+    const client = dgram.createSocket('udp4');
+    let done = false;
+    const expectedId = Buffer.isBuffer(message) && message.length >= 2 ? message.readUInt16BE(0) : -1;
+    const finish = (error, answer) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { client.close(); } catch (_) {}
+      error ? reject(error) : resolve(answer);
+    };
+    const timer = setTimeout(() => finish(new Error(`${address}: таймаут UDP`)), timeoutMs);
+    client.on('message', (answer) => {
+      if (answer.length < 12 || answer.readUInt16BE(0) !== expectedId || !(answer[2] & 0x80)) return;
+      finish(null, answer);
+    });
+    client.on('error', (error) => finish(error));
+    client.send(message, 53, address, (error) => { if (error) finish(error); });
+  });
+}
+
+function startBuiltInDohProxy() {
   if (dohSocket) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const socket = dgram.createSocket('udp4');
@@ -512,9 +942,68 @@ function startDohProxy() {
   });
 }
 
-function buildDohProbe() {
+function isExternalDnsProxyRunning() {
+  return !!(dnsProxyProcess && dnsProxyProcess.exitCode === null && !dnsProxyProcess.killed);
+}
+
+function isLocalDnsProxyRunning() {
+  return isExternalDnsProxyRunning() || !!dohSocket;
+}
+
+async function startExternalDnsProxy(profileName) {
+  if (isExternalDnsProxyRunning()) return;
+  const binary = dnsProxyBinaryPath();
+  if (!fs.existsSync(binary)) throw new Error('dnsproxy отсутствует в сборке');
+  if (hashFile(binary) !== DNSPROXY_SHA256) throw new Error('Контрольная сумма dnsproxy не совпала');
+  const upstreams = profileName === 'smartAi'
+    ? ['https://dns.comss.one/dns-query']
+    : ['https://cloudflare-dns.com/dns-query', 'https://dns.google/dns-query'];
+  const fallbacks = profileName === 'smartAi'
+    ? ['83.220.169.155:53', '212.109.195.93:53']
+    : ['1.1.1.1:53', '8.8.8.8:53'];
+  const args = [
+    '--listen', '127.0.0.1', '--port', '53',
+    '--cache', '--cache-size', '4194304', '--cache-optimistic',
+    '--pending-requests-enabled', '--upstream-mode', 'parallel', '--timeout', '4s',
+    '--bootstrap', '1.1.1.1:53', '--bootstrap', '8.8.8.8:53',
+    '--output', dnsProxyLogPath()
+  ];
+  for (const upstream of upstreams) args.push('--upstream', upstream);
+  for (const fallback of fallbacks) args.push('--fallback', fallback);
+  dnsProxyProcess = spawn(binary, args, {
+    cwd: path.dirname(binary), windowsHide: true, stdio: 'ignore'
+  });
+  const child = dnsProxyProcess;
+  child.once('error', (error) => { dohStats.lastError = error.message; });
+  child.once('exit', (code) => {
+    if (dnsProxyProcess !== child) return;
+    dnsProxyProcess = null;
+    if (!child.zapretExpectedStop && code && dohEnabled) dohStats.lastError = `dnsproxy завершился с кодом ${code}`;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  if (!isExternalDnsProxyRunning()) throw new Error(dohStats.lastError || 'dnsproxy не запустился');
+}
+
+async function startDohProxy() {
+  if (isLocalDnsProxyRunning()) return;
+  const profileName = dohPendingProfile || dohProfile || 'secure';
+  try {
+    await startExternalDnsProxy(profileName);
+    dohStats.lastEndpoint = profileName === 'smartAi' ? 'AdGuard dnsproxy · Comss' : 'AdGuard dnsproxy · Cloudflare / Google';
+    dohStats.lastError = '';
+  } catch (externalError) {
+    if (dnsProxyProcess) {
+      stopProcessTree(dnsProxyProcess);
+      dnsProxyProcess = null;
+    }
+    dohStats.lastError = `dnsproxy: ${externalError.message}; включён встроенный резерв`;
+    await startBuiltInDohProxy();
+  }
+}
+
+function buildDohProbe(domain = 'example.com') {
   const id = crypto.randomBytes(2).readUInt16BE(0);
-  const labels = ['example', 'com'].map((label) => Buffer.concat([Buffer.from([label.length]), Buffer.from(label)]));
+  const labels = String(domain).split('.').filter(Boolean).map((label) => Buffer.concat([Buffer.from([label.length]), Buffer.from(label)]));
   const packet = Buffer.concat([
     Buffer.from([id >> 8, id & 0xff, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0]),
     ...labels,
@@ -523,10 +1012,10 @@ function buildDohProbe() {
   return { id, packet };
 }
 
-function testDohProxy() {
+function testDohProxy(domain = 'example.com') {
   return new Promise((resolve, reject) => {
     const client = dgram.createSocket('udp4');
-    const { id, packet } = buildDohProbe();
+    const { id, packet } = buildDohProbe(domain);
     let done = false;
     const finish = (error) => {
       if (done) return;
@@ -537,7 +1026,11 @@ function testDohProxy() {
     };
     const timer = setTimeout(() => finish(new Error('локальный DNS-порт перехватывается VPN, антивирусом или системным фильтром')), 6500);
     client.on('message', (answer) => {
-      if (answer.length >= 12 && answer.readUInt16BE(0) === id && (answer[2] & 0x80)) finish();
+      if (answer.length < 12 || answer.readUInt16BE(0) !== id || !(answer[2] & 0x80)) return;
+      const rcode = answer[3] & 0x0f;
+      const answers = answer.readUInt16BE(6);
+      if (rcode !== 0 || answers === 0) finish(new Error(`DNS вернул код ${rcode} без адреса для ${domain}`));
+      else finish();
     });
     client.on('error', finish);
     client.send(packet, 53, '127.0.0.1', (error) => { if (error) finish(error); });
@@ -558,7 +1051,11 @@ function testUdpDnsServer(address, timeoutMs = 2500) {
     };
     const timer = setTimeout(() => finish(new Error(`${address} не отвечает`)), timeoutMs);
     client.on('message', (answer) => {
-      if (answer.length >= 12 && answer.readUInt16BE(0) === id && (answer[2] & 0x80)) finish();
+      if (answer.length < 12 || answer.readUInt16BE(0) !== id || !(answer[2] & 0x80)) return;
+      const rcode = answer[3] & 0x0f;
+      const answers = answer.readUInt16BE(6);
+      if (rcode !== 0 || answers === 0) finish(new Error(`${address} вернул DNS-код ${rcode} без адреса`));
+      else finish();
     });
     client.on('error', finish);
     client.send(packet, 53, address, (error) => { if (error) finish(error); });
@@ -588,8 +1085,8 @@ async function checkDnsProfileHealth() {
   try {
     let detail = '';
     if (profile.localProxy) {
-      await testDohProxy();
-      detail = dohStats.lastEndpoint || 'Cloudflare / Google';
+      for (const domain of (profile.healthDomains || ['example.com'])) await testDohProxy(domain);
+      detail = dohStats.lastEndpoint || (dohProfile === 'smartAi' ? 'Comss DoH' : 'Cloudflare / Google');
     } else {
       const checks = await Promise.allSettled(profile.addresses.map((address) => testUdpDnsServer(address, 2200)));
       const healthy = profile.addresses.filter((_address, index) => checks[index].status === 'fulfilled');
@@ -637,6 +1134,12 @@ function startDnsHealthMonitor() {
 }
 
 function stopDohProxy() {
+  const external = dnsProxyProcess;
+  dnsProxyProcess = null;
+  if (external) {
+    external.zapretExpectedStop = true;
+    stopProcessTree(external);
+  }
   const socket = dohSocket;
   dohSocket = null;
   if (socket) { try { socket.close(); } catch (_) {} }
@@ -645,13 +1148,16 @@ function stopDohProxy() {
 async function enableDoh(profileName = 'secure') {
   const profile = DNS_PROFILES[profileName];
   if (!profile) throw new Error('неизвестный DNS-профиль');
-  if (dohEnabled && dohProfile === profileName && (!profile.localProxy || dohSocket)) return getDohStatus();
+  if (dohEnabled && dohProfile === profileName && (!profile.localProxy || isLocalDnsProxyRunning())) return getDohStatus();
   if (dohEnabled || readDohState()) disableDoh();
 
   if (profile.localProxy) {
-    await startDohProxy();
-    try { await testDohProxy(); }
-    catch (error) { stopDohProxy(); throw error; }
+    dohPendingProfile = profileName;
+    try {
+      await startDohProxy();
+      for (const domain of (profile.healthDomains || ['example.com'])) await testDohProxy(domain);
+    }
+    catch (error) { dohPendingProfile = null; stopDohProxy(); throw error; }
   } else {
     await testSmartDns(profile.addresses);
   }
@@ -667,11 +1173,13 @@ async function enableDoh(profileName = 'secure') {
     setAdapterDns(adapters, profile.addresses);
     dohEnabled = true;
     dohProfile = profileName;
+    dohPendingProfile = null;
     startDnsHealthMonitor();
     return getDohStatus();
   } catch (error) {
     try { restoreDnsFromState(state); } catch (_) {}
     try { fs.unlinkSync(dohStatePath()); } catch (_) {}
+    dohPendingProfile = null;
     stopDohProxy();
     throw error;
   }
@@ -684,6 +1192,7 @@ function disableDoh() {
   try { if (fs.existsSync(dohStatePath())) fs.unlinkSync(dohStatePath()); } catch (_) {}
   dohEnabled = false;
   dohProfile = null;
+  dohPendingProfile = null;
   stopDohProxy();
   return getDohStatus();
 }
@@ -692,7 +1201,8 @@ function getDohStatus() {
   return {
     enabled: dohEnabled,
     profile: dohProfile,
-    proxyRunning: !!dohSocket,
+    proxyRunning: isLocalDnsProxyRunning(),
+    implementation: isExternalDnsProxyRunning() ? 'dnsproxy' : (dohSocket ? 'built-in' : null),
     healthState: dnsHealthState,
     healthFailures: dnsHealthFailures,
     ...dohStats
@@ -707,9 +1217,13 @@ async function recoverDohState() {
     fs.unlinkSync(dohStatePath());
   } catch (error) {
     // Если восстановление не удалось, сохраняем DNS рабочим до ручного исправления.
-    if (!state.profile || state.profile === 'secure') await startDohProxy();
+    const profileName = state.profile || 'secure';
+    const profile = DNS_PROFILES[profileName] || DNS_PROFILES.secure;
+    dohPendingProfile = profileName;
+    if (profile.localProxy) await startDohProxy();
     dohEnabled = true;
-    dohProfile = state.profile || 'secure';
+    dohProfile = profileName;
+    dohPendingProfile = null;
     startDnsRecoveryWatchdog();
     startDnsHealthMonitor();
     dohStats.lastError = `Не удалось восстановить DNS: ${error.message}`;
@@ -780,6 +1294,31 @@ function probeTls(address, servername, timeoutMs = 5500) {
   });
 }
 
+function probeTlsVersion(address, servername, version, timeoutMs = 5500) {
+  const startedAt = Date.now();
+  return new Promise((resolve) => {
+    const socket = tls.connect({
+      host: address,
+      port: 443,
+      servername,
+      rejectUnauthorized: true,
+      minVersion: version,
+      maxVersion: version
+    });
+    let finished = false;
+    const finish = (result) => {
+      if (finished) return;
+      finished = true;
+      socket.destroy();
+      resolve(measured(startedAt, result));
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('secureConnect', () => finish({ ok: true, protocol: socket.getProtocol() || version }));
+    socket.once('timeout', () => finish({ ok: false, error: `таймаут ${version}` }));
+    socket.once('error', (error) => finish({ ok: false, error: error.message, code: error.code || '' }));
+  });
+}
+
 function probeHttps(host, requestPath = '/', timeoutMs = 7000) {
   const startedAt = Date.now();
   return new Promise((resolve) => {
@@ -823,6 +1362,19 @@ function resolveWithSystem(host) {
       return measured(startedAt, { ok: addresses.length > 0, addresses });
     })
     .catch((error) => measured(startedAt, { ok: false, addresses: [], error: error.message, code: error.code || '' }));
+}
+
+function resolveWithSystem6(host) {
+  const startedAt = Date.now();
+  const lookup = dns.promises.resolve6(host)
+    .then((addresses) => measured(startedAt, { ok: addresses.length > 0, addresses }))
+    .catch((error) => measured(startedAt, { ok: false, addresses: [], error: error.message, code: error.code || '' }));
+  const timeout = new Promise((resolve) => setTimeout(() => resolve(measured(startedAt, {
+    ok: false,
+    addresses: [],
+    error: 'таймаут IPv6 DNS'
+  })), 3500));
+  return Promise.race([lookup, timeout]);
 }
 
 function resolveWithPublicDoh(host, timeoutMs = 6000) {
@@ -897,12 +1449,15 @@ function buildConflictList(system, engineRunning) {
   const tunnels = adapters.filter((adapter) => /vpn|wireguard|wintun|tap|tun|tailscale|zerotier|radmin|hamachi|adguard|happ/i.test(`${adapter.Name} ${adapter.Description}`));
   if (tunnels.length) conflicts.push({ level: 'warning', title: 'Обнаружен туннель или сетевой фильтр', detail: tunnels.map((item) => item.Name).join(', ') });
 
-  if (system.Proxy && (system.Proxy.Enabled || system.Proxy.AutoConfig)) {
+  const ownLocalProxy = bypassRuntime.running && ['byedpi', 'greentunnel'].includes(bypassRuntime.mode)
+    && /^((http|https|socks)=)?127\.0\.0\.1:/i.test(String(system.Proxy && system.Proxy.Server || ''));
+  if (system.Proxy && (system.Proxy.Enabled || system.Proxy.AutoConfig) && !ownLocalProxy) {
     conflicts.push({ level: 'warning', title: 'Системный прокси Windows активен', detail: system.Proxy.Server || system.Proxy.AutoConfig });
   }
 
   const port53 = Array.isArray(system.Port53) ? system.Port53 : (system.Port53 ? [system.Port53] : []);
-  const foreignDns = port53.filter((item) => Number(item.Pid) !== process.pid);
+  const ownedDnsPids = new Set([process.pid, dnsProxyProcess && dnsProxyProcess.pid].filter(Boolean).map(Number));
+  const foreignDns = port53.filter((item) => !ownedDnsPids.has(Number(item.Pid)));
   if (foreignDns.length) conflicts.push({ level: 'warning', title: 'DNS-порт 53 занят другой программой', detail: foreignDns.map((item) => `${item.Process || 'PID'} ${item.Pid}`).join(', ') });
 
   const dnsRows = Array.isArray(system.Dns) ? system.Dns : (system.Dns ? [system.Dns] : []);
@@ -930,10 +1485,10 @@ function buildConflictList(system, engineRunning) {
     conflicts.push({
       level: 'warning',
       title: 'Обнаружен сетевой фильтр HP',
-      detail: `${hpNames.slice(0, 5).join(', ') || hpProcesses.map((item) => item.Name).slice(0, 5).join(', ')}. Совместимость HP и требуемые параметры TCP применяются автоматически, но приложение не отключает защиту.`
+      detail: `${hpNames.slice(0, 5).join(', ') || hpProcesses.map((item) => item.Name).slice(0, 5).join(', ')}. В режиме «Авто» приложение использует вариант без WinDivert; защиту HP оно не отключает.`
     });
   } else if (isHp) {
-    conflicts.push({ level: 'warning', title: 'Совместимость HP включена', detail: `${computerName}. Требуемые параметры TCP будут автоматически подготовлены для любой выбранной стратегии.` });
+    conflicts.push({ level: 'warning', title: 'Совместимость HP включена', detail: `${computerName}. Режим «Авто» выберет обход без сетевого драйвера; полный Zapret останется доступен вручную.` });
   }
 
   const guard = system.DeviceGuard || {};
@@ -969,6 +1524,10 @@ function classifyDiagnostics(target, evidence, system, engineRunning) {
   if (!evidence.tls.ok) {
     return { code: 'dpi', level: 'warning', title: 'Вероятна фильтрация TLS/SNI через DPI или ТСПУ', confidence: 'средняя', detail: `TCP-соединение установлено, но защищённое TLS-соединение оборвалось: ${evidence.tls.error || 'ошибка handshake'}. Это характерный, но не абсолютный признак DPI.`, advice: 'Включите Zapret или запустите автоподбор стратегии и повторите диагностику.' };
   }
+  if (evidence.tls12 && evidence.tls13 && evidence.tls12.ok !== evidence.tls13.ok) {
+    const failedVersion = evidence.tls13.ok ? 'TLS 1.2' : 'TLS 1.3';
+    return { code: 'tls-version-filter', level: 'warning', title: `Нестабильно работает ${failedVersion}`, confidence: 'средняя', detail: `Обычный TLS проходит, но отдельная проверка ${failedVersion} завершилась ошибкой. Возможны особенности сервиса, антивирусного HTTPS-фильтра или оборудования провайдера.`, advice: 'Повторите проверку с активным обходом. Если результат сохраняется только на одной версии TLS, откройте расширенный отчёт и проверьте сетевые фильтры.' };
+  }
   if (evidence.https.blockPage || [451].includes(evidence.https.status)) {
     return { code: 'block-page', level: 'warning', title: 'Получена страница ограничения доступа', confidence: 'высокая', detail: `Сервис или промежуточный фильтр вернул HTTP ${evidence.https.status}.`, advice: 'Попробуйте другую стратегию обхода. Код 451 также может возвращать сам сервис по юридическим причинам.' };
   }
@@ -989,17 +1548,32 @@ async function runNetworkDiagnostics(targetId, engineRunning) {
   const target = DIAGNOSTIC_TARGETS[targetId];
   if (!target) throw new Error('неизвестный сервис для диагностики');
   const system = collectSystemSignals();
-  const [systemDns, publicDns, ...controls] = await Promise.all([
+  const [systemDns, systemDns6, publicDns, ...controls] = await Promise.all([
     resolveWithSystem(target.host),
+    resolveWithSystem6(target.host),
     resolveWithPublicDoh(target.host),
     probeHttps('www.gstatic.com', '/generate_204', 5500),
     probeHttps('www.microsoft.com', '/', 5500)
   ]);
   const address = systemDns.addresses && systemDns.addresses[0];
-  const tcp = address ? await probeTcp(address) : { ok: false, error: 'нет IP-адреса', ms: 0 };
-  const tlsResult = tcp.ok ? await probeTls(address, target.host) : { ok: false, error: 'TCP недоступен', ms: 0 };
+  const address6 = systemDns6.addresses && systemDns6.addresses[0];
+  const [tcp, tcp6] = await Promise.all([
+    address ? probeTcp(address) : Promise.resolve({ ok: false, error: 'нет IPv4-адреса', ms: 0 }),
+    address6 ? probeTcp(address6) : Promise.resolve({ ok: false, error: 'IPv6 не настроен', ms: 0 })
+  ]);
+  const [tlsResult, tls12, tls13] = tcp.ok
+    ? await Promise.all([
+        probeTls(address, target.host),
+        probeTlsVersion(address, target.host, 'TLSv1.2'),
+        probeTlsVersion(address, target.host, 'TLSv1.3')
+      ])
+    : [
+        { ok: false, error: 'TCP недоступен', ms: 0 },
+        { ok: false, error: 'TCP недоступен', ms: 0 },
+        { ok: false, error: 'TCP недоступен', ms: 0 }
+      ];
   const httpsResult = tlsResult.ok ? await probeHttps(target.host, target.path) : { ok: false, error: 'TLS недоступен', ms: 0 };
-  const evidence = { systemDns, publicDns, controls, tcp, tls: tlsResult, https: httpsResult };
+  const evidence = { systemDns, systemDns6, publicDns, controls, tcp, tcp6, tls: tlsResult, tls12, tls13, https: httpsResult };
   return {
     target: { id: targetId, label: target.label, host: target.host },
     diagnosis: classifyDiagnostics(target, evidence, system, !!engineRunning),
@@ -1016,7 +1590,7 @@ function isAdmin() {
   catch (e) { return false; }
 }
 
-if (!isAdmin()) {
+if (!previewMode && !isAdmin()) {
   const exePath = process.execPath.replace(/'/g, "''");
   const workDir = path.dirname(process.execPath).replace(/'/g, "''");
   const rawArgs = process.argv.slice(1);
@@ -1031,7 +1605,9 @@ if (!isAdmin()) {
 }
 
 // Один основной экземпляр: повторный запуск ярлыка показывает уже работающее окно.
-const ownsSingleInstanceLock = app.requestSingleInstanceLock();
+// Безопасный UI-предпросмотр может работать рядом с основной версией:
+// он использует отдельный профиль и не запускает движок/DNS.
+const ownsSingleInstanceLock = previewMode || app.requestSingleInstanceLock();
 
 if (!ownsSingleInstanceLock) {
   app.quit();
@@ -1041,7 +1617,12 @@ const emptyIcon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KG
 
 // === ФУНКЦИЯ ЗАЧИСТКИ ЗОМБИ-ПРОЦЕССОВ ===
 function cleanupEngine() {
-    try { execSync("taskkill /F /IM winws.exe /T", { stdio: 'ignore', windowsHide: true }); } catch(e){}
+    const child = bypassProcess;
+    if (child) child.zapretExpectedStop = true;
+    try { restoreSystemProxy(); } catch (_) {}
+    stopProcessTree(child);
+    bypassProcess = null;
+    try { if (fs.existsSync(bypassStatePath())) fs.unlinkSync(bypassStatePath()); } catch (_) {}
 }
 
 function showMainWindow() {
@@ -1336,15 +1917,19 @@ function createWindow () {
   }
 
   mainWindow = new BrowserWindow({
-    width: 550,
+    width: 1380,
     height: 850,
+    minWidth: 1080,
+    minHeight: 720,
+    center: true,
     autoHideMenuBar: true,
     show: !startMinimized,
     icon: windowIcon, 
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
-      webSecurity: false 
+      webSecurity: false,
+      additionalArguments: previewMode ? ['--zapret-ui-preview'] : []
     }
   })
   
@@ -1372,6 +1957,7 @@ function createWindow () {
   });
 
   mainWindow.on('session-end', () => {
+    try { cleanupEngine(); } catch (_) {}
     emergencyRestoreDns();
   });
 }
@@ -1379,7 +1965,10 @@ function createWindow () {
 app.whenReady().then(async () => {
   if (!ownsSingleInstanceLock) return;
 
-  if (!previewMode && !testInstanceMode) cleanupStaleTgWsProxy();
+  if (!previewMode && !testInstanceMode) {
+    cleanupStaleTgWsProxy();
+    cleanupStaleBypassState();
+  }
 
   if (!previewMode) {
     try { await recoverDohState(); }
@@ -1449,6 +2038,15 @@ ipcMain.on('rollback-update', async () => {
   await installUpdate(previousRelease, 'rollback');
 });
 
+ipcMain.handle('engine:get-status', () => getBypassStatus());
+ipcMain.handle('engine:start', async (_event, request) => {
+  try { return { ok: true, status: await startBypassEngine(request || {}) }; }
+  catch (error) { return { ok: false, error: error.message, status: getBypassStatus() }; }
+});
+ipcMain.handle('engine:stop', async () => {
+  try { return { ok: true, status: await stopBypassEngine() }; }
+  catch (error) { return { ok: false, error: error.message, status: getBypassStatus() }; }
+});
 ipcMain.handle('doh:get-status', () => getDohStatus());
 ipcMain.handle('tg-ws:get-status', () => getTgWsStatus());
 ipcMain.handle('tg-ws:start', async () => {
@@ -1486,6 +2084,40 @@ ipcMain.handle('diagnostics:compatibility', () => {
   try {
     const system = collectSystemSignals();
     return { ok: true, system, conflicts: buildConflictList(system, false) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+ipcMain.handle('network:get-profile', () => getActiveNetworkProfile());
+ipcMain.handle('settings:export', async (_event, payload) => {
+  try {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Сохранить резервную копию настроек',
+      defaultPath: path.join(app.getPath('documents'), 'ZapretPro-settings.json'),
+      filters: [{ name: 'Настройки Zapret Pro', extensions: ['json'] }]
+    });
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+    const data = JSON.stringify(payload && typeof payload === 'object' ? payload : {}, null, 2);
+    if (Buffer.byteLength(data, 'utf8') > 1024 * 1024) throw new Error('резервная копия слишком большая');
+    fs.writeFileSync(result.filePath, data, 'utf8');
+    return { ok: true, filePath: result.filePath };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+ipcMain.handle('settings:import', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Открыть резервную копию настроек',
+      properties: ['openFile'],
+      filters: [{ name: 'Настройки Zapret Pro', extensions: ['json'] }]
+    });
+    if (result.canceled || !result.filePaths[0]) return { ok: false, canceled: true };
+    const stat = fs.statSync(result.filePaths[0]);
+    if (stat.size > 1024 * 1024) throw new Error('файл настроек слишком большой');
+    const data = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8'));
+    if (!data || data.schemaVersion !== 1 || typeof data.settings !== 'object') throw new Error('это не резервная копия Zapret Pro');
+    return { ok: true, data };
   } catch (error) {
     return { ok: false, error: error.message };
   }
@@ -1529,10 +2161,12 @@ app.on('before-quit', (event) => {
 });
 
 app.on('will-quit', () => {
+  try { restoreSystemProxy(); } catch (_) {}
   emergencyRestoreDns();
 });
 
 process.on('exit', () => {
+  try { restoreSystemProxy(); } catch (_) {}
   emergencyRestoreDns();
 });
 

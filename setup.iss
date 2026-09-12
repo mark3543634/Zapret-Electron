@@ -4,13 +4,13 @@
 
 [Setup]
 AppName=Zapret Electron
-AppVersion=6.9
+AppVersion=7.2.1
 AppPublisher=ZapretPro
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
 DefaultDirName={autopf}\ZapretPro
 DefaultGroupName=Zapret Electron
 OutputDir=.\releases
-OutputBaseFilename=ZapretElectron-Setup-v6.9
+OutputBaseFilename=ZapretElectron-Setup-v7.2.1
 Compression=lzma2/ultra64
 SolidCompression=yes
 PrivilegesRequired=admin

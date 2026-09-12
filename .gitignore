@@ -1,5 +1,6 @@
 # Зависимости
 node_modules/
+.vendor-staging-*/
 
 # Сборки Electron
 out/
